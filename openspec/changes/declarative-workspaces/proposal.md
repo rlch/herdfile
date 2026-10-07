@@ -28,8 +28,8 @@ herdr match that file, and anything left out of the file gets closed.
 - `parent` gives a tree. An orchestrator reads it to know its children; status is read live.
 - Messaging by name: `herdfile tell <name> "..."` delivers a prompt to that workspace's agent.
 - One "needs you" list collects everything waiting on the operator, instead of many panes.
-- Out of this change (planned as follow-ups): writing back hand moves and reorders, and rewriting
-  existing launcher skills on top of herdfile.
+- Out of this change (planned as a follow-up): rewriting existing launcher skills on top of
+  herdfile.
 
 ## Capabilities
 

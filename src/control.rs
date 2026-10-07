@@ -79,3 +79,25 @@ pub fn warn_if_no_watcher() {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wire_format() {
+        let apply = serde_json::to_string(&Request::Apply {
+            workspace: "w1".into(),
+        })
+        .unwrap();
+        assert_eq!(apply, r#"{"op":"apply","workspace":"w1"}"#);
+        assert_eq!(
+            serde_json::to_string(&Request::Ping).unwrap(),
+            r#"{"op":"ping"}"#
+        );
+        let reply: Reply = serde_json::from_str(r#"{"ok":false,"error":"boom"}"#).unwrap();
+        assert!(!reply.ok && reply.error.as_deref() == Some("boom") && reply.problems.is_empty());
+        let err = Reply::error("no");
+        assert!(!err.ok);
+    }
+}

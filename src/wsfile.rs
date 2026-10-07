@@ -489,6 +489,23 @@ mod tests {
     }
 
     #[test]
+    fn tab_emptied_then_set_again_is_written() {
+        let mut f = file("[tab.main]\nrow = [\"agent\"]\n\n[tab.b]\nrow = [\"x\"]\n").unwrap();
+        f.remove("agent").unwrap();
+        f.set_tab(
+            "main",
+            crate::layout::parse_tree_arg(r#"["agent"]"#, "main").unwrap(),
+        );
+        let again = WorkspaceFile::parse(&f.to_text(), &f.path).unwrap();
+        assert_eq!(
+            again.tab("main").unwrap().tree.leaf_names(),
+            ["agent"],
+            "{}",
+            f.to_text()
+        );
+    }
+
+    #[test]
     fn removing_last_pane_drops_tab() {
         let mut f =
             file("[tab.main]\nrow = [\"agent\"]\n\n[tab.services]\nrow = [\"dev\"]\n").unwrap();

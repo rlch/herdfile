@@ -1,8 +1,6 @@
 //! The file of workspaces, tell, and the "needs you" list.
 
-mod common;
-
-use common::TestServer;
+use crate::harness::TestServer;
 
 /// A decoy workspace keeps focus away from the ones under test. Its pane
 /// also proves agents started here would be the fake.

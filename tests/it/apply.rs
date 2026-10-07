@@ -1,9 +1,7 @@
 //! Apply: herdr converges to the workspace file. One test per spec scenario,
 //! each against its own throwaway herdr server.
 
-mod common;
-
-use common::{TestServer, SERVICES};
+use crate::harness::{TestServer, SERVICES};
 
 /// A workspace with tab `main` holding the agent pane, and a file saying so.
 fn setup(t: &mut TestServer) -> String {

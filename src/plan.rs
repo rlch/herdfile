@@ -87,23 +87,27 @@ impl Backend for Recorder<'_> {
 }
 
 /// What a pass would change in one workspace, as lines. Empty: nothing.
-pub fn plan_workspace(backend: &dyn Backend, snap: &Snapshot, ws: &str) -> Result<Vec<String>> {
+pub fn plan_workspace(
+    backend: &dyn Backend,
+    snap: &Snapshot,
+    ws: &str,
+    path: &std::path::Path,
+    mut state: WsState,
+) -> Result<Vec<String>> {
     let rec = Recorder {
         inner: backend,
         log: RefCell::new(Vec::new()),
     };
-    let path = paths::workspace_file(ws);
     let mut file = if path.exists() {
-        WorkspaceFile::load(&path)?
+        WorkspaceFile::load(path)?
     } else {
-        let mut f = WorkspaceFile::empty(&path);
+        let mut f = WorkspaceFile::empty(path);
         if let Some(dir) = workspace_dir(&f, snap, ws) {
             f.set_dir(&dir.to_string_lossy());
         }
         f
     };
     let services = load_services(&file, snap, ws)?;
-    let mut state = WsState::load(ws);
     let mut local = snap.clone();
     let wb = writeback(&rec, &mut local, ws, &mut file, &mut state, &services)?;
     file.validate(&services)?;
@@ -181,7 +185,9 @@ pub fn plan(only: Option<String>) -> Result<()> {
             None if !crate::workspaces::in_scope(&scope, &label) => continue,
             _ => {}
         }
-        match plan_workspace(&backend, &snap, &w.workspace_id) {
+        let path = paths::workspace_file(&w.workspace_id);
+        let state = WsState::load(&w.workspace_id);
+        match plan_workspace(&backend, &snap, &w.workspace_id, &path, state) {
             Ok(lines) => {
                 let moves = lines.iter().any(|l| {
                     l.starts_with("close ")
@@ -214,4 +220,113 @@ pub fn plan(only: Option<String>) -> Result<()> {
         "\n{quiet} workspace(s) would only be labelled and recorded; {risky} would see panes opened, closed, moved, or resized"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A backend that must never be reached: plan only reads its snapshot.
+    struct Unreachable;
+
+    impl Backend for Unreachable {
+        fn snapshot(&self) -> Result<Snapshot> {
+            bail!("unreachable")
+        }
+        fn subscribe(&self, _: &mut dyn FnMut(Event) -> bool) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn create_workspace(&self, _: &str, _: &str) -> Result<(String, String, String)> {
+            bail!("unreachable")
+        }
+        fn close_workspace(&self, _: &str) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn create_tab(&self, _: &str, _: &str, _: &Spawn) -> Result<(String, String)> {
+            bail!("unreachable")
+        }
+        fn rename_tab(&self, _: &str, _: &str) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn move_tab(&self, _: &str, _: usize) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn split(&self, _: &Placement, _: &Spawn) -> Result<String> {
+            bail!("unreachable")
+        }
+        fn move_pane(&self, _: &str, _: &str, _: &Placement) -> Result<String> {
+            bail!("unreachable")
+        }
+        fn move_pane_new_tab(&self, _: &str, _: &str, _: &str) -> Result<(String, String)> {
+            bail!("unreachable")
+        }
+        fn swap(&self, _: &str, _: &str) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn close_pane(&self, _: &str) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn rename_pane(&self, _: &str, _: Option<&str>) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn run(&self, _: &str, _: &str) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn set_ratio(&self, _: &str, _: &[bool], _: f64) -> Result<()> {
+            bail!("unreachable")
+        }
+        fn cli(&self, _: &[&str]) -> Result<(i32, String, String)> {
+            bail!("unreachable")
+        }
+    }
+
+    fn fixture() -> Snapshot {
+        serde_json::from_str(include_str!("../tests/fixtures/snapshot.json")).unwrap()
+    }
+
+    #[test]
+    fn first_sight_plan_only_labels_and_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("w1.toml");
+        let lines =
+            plan_workspace(&Unreachable, &fixture(), "w1", &path, WsState::default()).unwrap();
+        assert!(
+            lines.iter().any(|l| l == "label w1:p3 `shell-1`"),
+            "{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.starts_with("rename tab")),
+            "tabs are pinned: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l == "record: agent, test, shell-1, dev"),
+            "{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|l| l.starts_with("close")
+                || l.starts_with("reshape")
+                || l.starts_with("resize")),
+            "{lines:?}"
+        );
+        assert!(!path.exists(), "plan wrote a file");
+    }
+
+    #[test]
+    fn plan_shows_what_apply_would_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("w1.toml");
+        std::fs::write(
+            &path,
+            "[tab.main]\nrow = [\"agent\", { pane = \"test\", mark = \"unmanaged\", cwd = \"/tmp\" }]\n",
+        )
+        .unwrap();
+        // `dev` was seen in the file before; the file has since dropped it.
+        let mut state = WsState::default();
+        state.known.insert("dev".into());
+        let lines = plan_workspace(&Unreachable, &fixture(), "w1", &path, state).unwrap();
+        assert!(lines.iter().any(|l| l == "close dev"), "{lines:?}");
+        assert!(!lines.iter().any(|l| l.contains("close test")), "{lines:?}");
+    }
 }

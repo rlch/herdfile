@@ -651,4 +651,28 @@ mod tests {
         assert_eq!(round5(0.61), 60);
         assert_eq!(round5(0.625), 65);
     }
+
+    #[test]
+    fn fractions_share_the_rest() {
+        let c = tree(r#"row = [{ pane = "a", size = 40 }, "b", "c"]"#);
+        assert_eq!(c.fractions(), [0.4, 0.3, 0.3]);
+        let all = tree(r#"row = [{ pane = "a", size = 30 }, { pane = "b", size = 30 }]"#);
+        assert_eq!(
+            all.fractions(),
+            [0.5, 0.5],
+            "all sized and short of 100: scaled"
+        );
+    }
+
+    #[test]
+    fn sizes_must_leave_room() {
+        assert!(parse_tree_arg(r#"row = [{ pane = "a", size = 100 }]"#, "t").is_err());
+        assert!(parse_tree_arg(
+            r#"row = [{ pane = "a", size = 60 }, { pane = "b", size = 40 }, "c"]"#,
+            "t"
+        )
+        .is_err());
+        assert!(parse_tree_arg(r#"row = []"#, "t").is_err());
+        assert!(parse_tree_arg(r#"row = [{ row = ["a"], column = ["b"] }]"#, "t").is_err());
+    }
 }

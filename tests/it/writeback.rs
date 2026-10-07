@@ -1,10 +1,8 @@
 //! Write-back: hand changes are folded into the file, never fought.
 
-mod common;
-
 use std::time::Duration;
 
-use common::{TestServer, SERVICES};
+use crate::harness::{TestServer, SERVICES};
 
 fn setup(t: &mut TestServer, file_body: &str) -> String {
     t.write_services(SERVICES);
@@ -228,4 +226,136 @@ fn tab_renamed_outside_is_written_back_not_rebuilt() {
         .collect();
     assert_eq!(after, terms, "panes were moved");
     assert!(!t.log().contains("moved"), "{}", t.log());
+}
+
+#[test]
+fn pane_moved_to_another_tab_is_written_back() {
+    let mut t = TestServer::start();
+    let ws =
+        t.demo("\n[tab.main]\nrow = [\"agent\", \"test\"]\n\n[tab.services]\nrow = [\"dev\"]\n");
+    let services = t.tab_id(&ws, "services");
+    let dev = t.pane_id(&ws, "dev");
+    let test = t.pane_id(&ws, "test");
+    t.herdr(&[
+        "pane",
+        "move",
+        &test,
+        "--tab",
+        &services,
+        "--split",
+        "right",
+        "--target-pane",
+        &dev,
+        "--no-focus",
+    ]);
+    t.eventually("move written back", || {
+        let f = t.read_ws_file(&ws);
+        f.contains("[tab.main]\nrow = [\"agent\"]") && f.contains("row = [\"dev\", \"test\"]")
+    });
+    t.settle();
+    assert_eq!(t.tab_labels(&ws, "services"), ["dev", "test"], "moved back");
+    assert_eq!(t.tab_labels(&ws, "main"), ["agent"]);
+}
+
+#[test]
+fn swap_by_hand_is_written_back() {
+    let mut t = TestServer::start();
+    let ws = t.demo("\n[tab.main]\nrow = [\"agent\", \"test\"]\n");
+    let agent = t.pane_id(&ws, "agent");
+    let test = t.pane_id(&ws, "test");
+    t.herdr(&[
+        "pane",
+        "swap",
+        "--source-pane",
+        &agent,
+        "--target-pane",
+        &test,
+    ]);
+    t.eventually("swap written back", || {
+        t.read_ws_file(&ws).contains("row = [\"test\", \"agent\"]")
+    });
+    t.settle();
+    assert_eq!(t.tab_labels(&ws, "main"), ["test", "agent"], "swapped back");
+}
+
+#[test]
+fn hand_move_beats_a_queued_command() {
+    let mut t = TestServer::start();
+    let ws =
+        t.demo("\n[tab.main]\nrow = [\"agent\", \"test\"]\n\n[tab.services]\nrow = [\"dev\"]\n");
+    t.pause_watcher();
+    let place = t
+        .herdfile_cmd(Some(&ws), &["place", "test", "--tab", "services"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    t.eventually("edit written", || {
+        t.read_ws_file(&ws).contains("row = [\"dev\", \"test\"]")
+    });
+    let agent = t.pane_id(&ws, "agent");
+    let test = t.pane_id(&ws, "test");
+    t.herdr(&[
+        "pane",
+        "swap",
+        "--source-pane",
+        &agent,
+        "--target-pane",
+        &test,
+    ]);
+    t.resume_watcher();
+    let out = place.wait_with_output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success());
+    assert!(
+        err.contains("moved by hand") && err.contains("`test`"),
+        "{err}"
+    );
+    t.settle();
+    assert_eq!(t.tab_labels(&ws, "main"), ["test", "agent"]);
+    assert!(t.read_ws_file(&ws).contains("row = [\"test\", \"agent\"]"));
+}
+
+#[test]
+fn queued_place_survives_a_hand_split_of_its_tab() {
+    let mut t = TestServer::start();
+    let ws = t.demo("\n[tab.main]\nrow = [\"agent\", \"test\"]\n");
+    t.pause_watcher();
+    let place = t
+        .herdfile_cmd(Some(&ws), &["place", "logs", "--after", "agent"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    t.eventually("edit written", || t.read_ws_file(&ws).contains("\"logs\""));
+    let test = t.pane_id(&ws, "test");
+    t.herdr(&["pane", "split", &test, "--direction", "down", "--no-focus"]);
+    t.resume_watcher();
+    let out = place.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    t.settle();
+    let labels = t.tab_labels(&ws, "main");
+    assert!(labels.contains(&"logs".to_string()), "{labels:?}");
+    assert!(labels.contains(&"shell-1".to_string()), "{labels:?}");
+    let f = t.read_ws_file(&ws);
+    assert!(f.contains("\"logs\"") && f.contains("shell-1"), "{f}");
+}
+
+#[test]
+fn hand_close_while_watcher_is_down_is_written_back() {
+    let mut t = TestServer::start();
+    let ws = t.demo("\n[tab.main]\nrow = [\"agent\", \"test\"]\n");
+    t.stop_watcher();
+    let test = t.pane_id(&ws, "test");
+    t.herdr(&["pane", "close", &test]);
+    t.start_watcher();
+    t.eventually("dropped on restart", || {
+        !t.read_ws_file(&ws).contains("\"test\"")
+    });
+    t.settle();
+    assert!(t.pane(&ws, "test").is_none(), "reopened after restart");
 }

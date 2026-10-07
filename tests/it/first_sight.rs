@@ -1,9 +1,7 @@
 //! First sight: the watcher records a workspace it has no file for, exactly
 //! as it is on screen, and changes nothing.
 
-mod common;
-
-use common::{TestServer, SERVICES};
+use crate::harness::{TestServer, SERVICES};
 
 fn panes_of(t: &TestServer, ws: &str) -> Vec<(String, String)> {
     let mut v: Vec<(String, String)> = t.snapshot()["panes"]
@@ -78,7 +76,9 @@ fn first_sight_records_the_workspace_as_it_is() {
         ratio
     );
     let out = t.ok(None, &["apply", "-w", &ws]);
-    assert!(out.contains("herdr already matches"), "{out}");
+    for change in ["opened", "closed", "moved", "resized"] {
+        assert!(!out.contains(change), "{out}");
+    }
 }
 
 #[test]

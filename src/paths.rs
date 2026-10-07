@@ -88,3 +88,35 @@ pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
     std::fs::write(&tmp, contents)?;
     std::fs::rename(&tmp, path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tilde_and_locks() {
+        let home = home();
+        assert_eq!(expand_tilde("~"), home);
+        assert_eq!(expand_tilde("~/dev/x"), home.join("dev/x"));
+        assert_eq!(expand_tilde("/abs"), PathBuf::from("/abs"));
+        assert_eq!(expand_tilde("rel/~"), PathBuf::from("rel/~"));
+        assert_eq!(
+            lock_for(Path::new("/s/w1.toml")),
+            PathBuf::from("/s/w1.toml.lock")
+        );
+    }
+
+    #[test]
+    fn atomic_write_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a/b.toml");
+        write_atomic(&path, "one").unwrap();
+        write_atomic(&path, "two").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1,
+            "no temp files left"
+        );
+    }
+}

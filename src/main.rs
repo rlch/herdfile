@@ -335,3 +335,13 @@ fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Ask { question } => needs::ask(&question),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_is_well_formed() {
+        super::Cli::command().debug_assert();
+    }
+}

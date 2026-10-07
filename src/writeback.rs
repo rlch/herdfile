@@ -2,7 +2,7 @@
 //! file does not know (all of them, the first time a workspace is seen),
 //! hand closes, and dragged sizes.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::Result;
 
@@ -32,6 +32,13 @@ pub struct WsState {
     /// Each tab's label after our last pass, by tab id, to notice renames.
     #[serde(default)]
     pub tabs: BTreeMap<String, String>,
+    /// Tabs given a fixed label, by tab id.
+    #[serde(default)]
+    pub pinned: BTreeSet<String>,
+    /// Each tab's layout (structure and labels, no sizes) after our last
+    /// pass, by tab id. A tab that differs was changed outside herdfile.
+    #[serde(default)]
+    pub layouts: BTreeMap<String, String>,
 }
 
 impl WsState {
@@ -66,6 +73,12 @@ pub struct WritebackReport {
     /// Tabs renamed outside herdfile, as `old -> new`.
     #[serde(default)]
     pub renamed: Vec<String>,
+    /// Panes moved to another tab outside herdfile.
+    #[serde(default)]
+    pub moved: Vec<String>,
+    /// Tabs whose layout was changed outside herdfile and taken as it is.
+    #[serde(default)]
+    pub reshaped: Vec<String>,
 }
 
 impl WritebackReport {
@@ -74,6 +87,8 @@ impl WritebackReport {
             && self.recorded.is_empty()
             && self.resized.is_empty()
             && self.renamed.is_empty()
+            && self.moved.is_empty()
+            && self.reshaped.is_empty()
     }
 }
 
@@ -101,9 +116,16 @@ pub fn label_prefix(pane: &Pane) -> String {
     }
 }
 
-/// Give every tab of a workspace a unique label: the file names tabs by
-/// label, herdr does not require them to be unique.
-fn label_tabs(backend: &dyn Backend, snap: &mut Snapshot, ws: &str) -> Result<()> {
+/// Give every tab of a workspace a unique, fixed label: the file names tabs
+/// by label, and herdr neither requires labels to be unique nor keeps an
+/// unnamed tab's label (it is its position, and shifts when tabs move or
+/// close). Each tab is renamed once, to the label it shows, which fixes it.
+fn label_tabs(
+    backend: &dyn Backend,
+    snap: &mut Snapshot,
+    ws: &str,
+    pinned: &mut BTreeSet<String>,
+) -> Result<()> {
     let mut tabs: Vec<(String, u32, Option<String>)> = snap
         .tabs_of(ws)
         .map(|t| (t.tab_id.clone(), t.number, t.label.clone()))
@@ -116,8 +138,9 @@ fn label_tabs(backend: &dyn Backend, snap: &mut Snapshot, ws: &str) -> Result<()
             name = format!("{name}-{number}");
             seen.insert(name.clone());
         }
-        if label.as_deref() != Some(name.as_str()) {
+        if label.as_deref() != Some(name.as_str()) || !pinned.contains(&id) {
             backend.rename_tab(&id, &name)?;
+            pinned.insert(id.clone());
             if let Some(t) = snap.tabs.iter_mut().find(|t| t.tab_id == id) {
                 t.label = Some(name);
             }
@@ -206,7 +229,7 @@ pub fn writeback(
             report.renamed.push(format!("{old} -> {new}"));
         }
     }
-    label_tabs(backend, snap, ws)?;
+    label_tabs(backend, snap, ws, &mut state.pinned)?;
     let file_names: HashSet<String> = file.leaf_names().into_iter().collect();
     let labelled = label_unlabelled(backend, snap, ws, &file_names)?;
 
@@ -222,39 +245,151 @@ pub fn writeback(
                     && !state.pending.contains(l))
         })
         .collect();
+    // Listed panes that are gone: closed by hand.
+    let live: HashSet<String> = snap.panes_of(ws).filter_map(|p| p.label.clone()).collect();
+    for name in file.leaf_names() {
+        if live.contains(&name) {
+            continue;
+        }
+        let mark = file.find(&name).map(|(_, l)| l.mark).unwrap_or_default();
+        if mark != Mark::Managed || state.known.contains(&name) {
+            file.remove(&name);
+            state.known.remove(&name);
+            report.dropped.push(name);
+        }
+    }
+
+    // Services and the agent are the file's own; anything else was opened
+    // outside it and is never closed automatically. A pane the file already
+    // lists keeps its mark.
+    let listed: HashMap<String, (String, Leaf)> = file
+        .tabs
+        .iter()
+        .flat_map(|t| {
+            t.tree
+                .leaves()
+                .into_iter()
+                .map(|l| (l.name.clone(), (t.name.clone(), l.clone())))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let leaf_for = |label: &str| {
+        if let Some((_, l)) = listed.get(label) {
+            return Leaf {
+                size: None,
+                ..l.clone()
+            };
+        }
+        if label == RESERVED || services.contains(label) {
+            Leaf::new(label)
+        } else {
+            Leaf {
+                name: label.to_string(),
+                size: None,
+                mark: Mark::Unmanaged,
+                cwd: snap.pane_by_label(ws, label).and_then(|p| p.cwd.clone()),
+            }
+        }
+    };
+
     let mut tabs: Vec<_> = snap.tabs_of(ws).cloned().collect();
     tabs.sort_by_key(|t| t.number);
+
+    // Tabs whose layout changed since our last pass were changed outside
+    // herdfile (a split, a move, a swap): the file takes them as they are.
+    let changed: Vec<(String, LiveNode)> = tabs
+        .iter()
+        .filter_map(|t| {
+            let before = state.layouts.get(&t.tab_id)?;
+            let tree = LiveNode::of_tab(snap, &t.tab_id)?;
+            (&layout_key(&tree.shape()) != before).then(|| {
+                (
+                    t.label.clone().unwrap_or_else(|| t.number.to_string()),
+                    tree,
+                )
+            })
+        })
+        .collect();
+    let placed: HashSet<String> = changed
+        .iter()
+        .flat_map(|(_, tree)| tree.leaves().into_iter().filter_map(|(_, l)| l))
+        .collect();
+    for (tab_name, tree) in &changed {
+        // What the file still wants in this tab but is not on screen here
+        // (not opened yet, or placed by a command): kept after its neighbour.
+        let carried: Vec<(Option<String>, Leaf)> = file
+            .tab(tab_name)
+            .map(|t| {
+                let leaves = t.tree.leaves();
+                leaves
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| !placed.contains(&l.name))
+                    .map(|(i, l)| {
+                        (
+                            i.checked_sub(1).map(|j| leaves[j].name.clone()),
+                            (*l).clone(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (_, label) in tree.leaves() {
+            let Some(label) = label else { continue };
+            if let Some((was, _)) = listed.get(&label) {
+                if was != tab_name {
+                    report.moved.push(label.clone());
+                }
+            } else if new_panes.contains(&label) {
+                state.known.insert(label.clone());
+                report.recorded.push(label.clone());
+            }
+            // Listed in another tab: it moved here.
+            if file
+                .find(&label)
+                .map(|(t, _)| &t.name != tab_name)
+                .unwrap_or(false)
+            {
+                file.remove(&label);
+            }
+        }
+        file.set_tab(tab_name, tree_from_live(&tree.shape(), &leaf_for));
+        for (prev, leaf) in carried {
+            let anchor = prev
+                .as_deref()
+                .filter(|p| {
+                    file.tab(tab_name)
+                        .map(|t| t.tree.leaf_names().iter().any(|n| n == p))
+                        .unwrap_or(false)
+                })
+                .map(|p| (p, None, true));
+            file.insert(tab_name, leaf, anchor)?;
+        }
+        report.reshaped.push(tab_name.clone());
+    }
+    let changed_names: HashSet<String> = changed.iter().map(|(n, _)| n.clone()).collect();
+
+    // Elsewhere, panes the file does not know are added where they sit.
     for tab in &tabs {
         let Some(tree) = LiveNode::of_tab(snap, &tab.tab_id) else {
             continue;
         };
         let tab_name = tab.label.clone().unwrap_or_else(|| tab.number.to_string());
+        if changed_names.contains(&tab_name) {
+            continue;
+        }
         let leaves = tree.leaves();
         let new_here: Vec<(String, String)> = leaves
             .iter()
             .filter_map(|(id, l)| {
                 l.clone()
-                    .filter(|l| new_panes.contains(l))
+                    .filter(|l| new_panes.contains(l) && file.find(l).is_none())
                     .map(|l| (id.clone(), l))
             })
             .collect();
         if new_here.is_empty() {
             continue;
         }
-        // Services and the agent are the file's own; anything else was
-        // opened outside it and is never closed automatically.
-        let leaf_for = |label: &str| {
-            if label == RESERVED || services.contains(label) {
-                Leaf::new(label)
-            } else {
-                Leaf {
-                    name: label.to_string(),
-                    size: None,
-                    mark: Mark::Unmanaged,
-                    cwd: snap.pane_by_label(ws, label).and_then(|p| p.cwd.clone()),
-                }
-            }
-        };
         if file.tab(&tab_name).is_none() && new_here.len() == leaves.len() {
             // A whole tab the file has never seen: take it as it is.
             file.set_tab(&tab_name, tree_from_live(&tree.shape(), &leaf_for));
@@ -279,23 +414,17 @@ pub fn writeback(
         }
     }
 
-    // Listed panes that are gone.
-    let live: HashSet<String> = snap.panes_of(ws).filter_map(|p| p.label.clone()).collect();
-    for name in file.leaf_names() {
-        if live.contains(&name) {
-            continue;
-        }
-        let mark = file.find(&name).map(|(_, l)| l.mark).unwrap_or_default();
-        if mark != Mark::Managed || state.known.contains(&name) {
-            file.remove(&name);
-            state.known.remove(&name);
-            report.dropped.push(name);
-        }
-    }
-
     // Dragged sizes: only for tabs whose ratios moved since our last pass.
     for tab in &tabs {
         let Some(label) = &tab.label else { continue };
+        if changed_names.contains(label) {
+            if let Some(tree) = LiveNode::of_tab(snap, &tab.tab_id) {
+                state
+                    .ratios
+                    .insert(label.clone(), tree.ratios().into_iter().collect());
+            }
+            continue;
+        }
         let Some(before) = state.ratios.get(label) else {
             continue;
         };
@@ -320,6 +449,22 @@ pub fn writeback(
         state.ratios.insert(label.clone(), now);
     }
     Ok(report)
+}
+
+/// A tab's layout as text: structure and labels, no sizes.
+pub fn layout_key(shape: &Shape) -> String {
+    match shape {
+        Shape::Leaf(l) => l.clone(),
+        Shape::Split(dir, children) => format!(
+            "{}({})",
+            dir.key(),
+            children
+                .iter()
+                .map(|(c, _)| layout_key(c))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    }
 }
 
 /// A file tree for a live layout, with sizes to the whole percent when panes
@@ -513,5 +658,67 @@ mod tests {
     fn labels_are_unique() {
         let taken: HashSet<String> = ["shell-1".to_string()].into();
         assert_eq!(generate_label("shell", &taken), "shell-2");
+    }
+
+    #[test]
+    fn whole_sizes_round_and_leave_the_last() {
+        assert_eq!(whole_sizes(&[0.5, 0.5]), [None, None]);
+        assert_eq!(whole_sizes(&[0.333, 0.334, 0.333]), [None, None, None]);
+        assert_eq!(whole_sizes(&[0.65, 0.35]), [Some(65), None]);
+        assert_eq!(whole_sizes(&[0.25, 0.25, 0.5]), [Some(25), Some(25), None]);
+    }
+
+    #[test]
+    fn layout_key_ignores_sizes() {
+        let a = live(0.7).shape();
+        let b = live(0.3).shape();
+        assert_eq!(layout_key(&a), "row(agent,test)");
+        assert_eq!(layout_key(&a), layout_key(&b));
+    }
+
+    #[test]
+    fn tree_from_live_keeps_the_screen() {
+        let tree = tree_from_live(&live(0.65).shape(), &|n: &str| Leaf::new(n));
+        assert_eq!(
+            format!("{}", tree.to_array()),
+            r#"[{ pane = "agent", size = 65 }, "test"]"#
+        );
+        let back = shape_of(&tree, &|_| true).unwrap();
+        assert!(back.same_layout(&live(0.65).shape()));
+    }
+
+    #[test]
+    fn exact_sizes_follow_the_screen() {
+        let tree = parse_tree_arg(r#"row = ["agent", "test"]"#, "main").unwrap();
+        let out = exact_sizes_from_live(&tree, &live(0.62)).unwrap();
+        assert_eq!(
+            format!("{}", out.to_array()),
+            r#"[{ pane = "agent", size = 62 }, "test"]"#
+        );
+        assert!(
+            exact_sizes_from_live(&tree, &live(0.5)).is_none(),
+            "already equal"
+        );
+        let other = parse_tree_arg(r#"column = ["agent", "test"]"#, "main").unwrap();
+        assert!(
+            exact_sizes_from_live(&other, &live(0.62)).is_none(),
+            "different layout"
+        );
+    }
+
+    #[test]
+    fn label_prefix_names_the_agent() {
+        let pane = |agent: Option<&str>| Pane {
+            pane_id: "w1:p1".into(),
+            tab_id: "w1:t1".into(),
+            workspace_id: "w1".into(),
+            label: None,
+            cwd: None,
+            agent: agent.map(str::to_string),
+            agent_status: None,
+        };
+        assert_eq!(label_prefix(&pane(None)), "shell");
+        assert_eq!(label_prefix(&pane(Some("claude"))), "claude");
+        assert_eq!(label_prefix(&pane(Some("Open Code"))), "open-code");
     }
 }

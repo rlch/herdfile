@@ -232,3 +232,63 @@ pub trait Backend {
     /// (agent start/prompt/wait/read, worktrees).
     fn cli(&self, args: &[&str]) -> Result<(i32, String, String)>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> Snapshot {
+        serde_json::from_str::<Snapshot>(include_str!("../../tests/fixtures/snapshot.json"))
+            .unwrap()
+    }
+
+    #[test]
+    fn parses_a_real_snapshot() {
+        let snap = fixture();
+        assert_eq!(snap.workspace("w1").unwrap().label.as_deref(), Some("demo"));
+        assert_eq!(snap.tab_by_label("w1", "main").unwrap().tab_id, "w1:t1");
+        assert_eq!(snap.pane_by_label("w1", "dev").unwrap().tab_id, "w1:t2");
+        assert!(snap.pane_by_label("w2", "dev").is_none());
+        assert!(snap.pane_by_label("w1", "agent").unwrap().busy());
+        assert!(!snap.pane_by_label("w1", "test").unwrap().busy());
+        assert_eq!(snap.layout("w1:t1").unwrap().splits.len(), 2);
+        assert!(snap.workspace("w1").unwrap().linked_worktree().is_none());
+    }
+
+    #[test]
+    fn event_workspace_from_any_id() {
+        let ev = |data: serde_json::Value| Event {
+            kind: "x".into(),
+            data,
+        };
+        assert_eq!(
+            ev(serde_json::json!({"pane_id": "w3:p2"}))
+                .workspace_id()
+                .as_deref(),
+            Some("w3")
+        );
+        assert_eq!(
+            ev(serde_json::json!({"layout": {"workspace_id": "w9", "tab_id": "w9:t1"}}))
+                .workspace_id()
+                .as_deref(),
+            Some("w9")
+        );
+        assert_eq!(
+            ev(serde_json::json!({"tab_id": "w1RR:t2"}))
+                .workspace_id()
+                .as_deref(),
+            Some("w1RR")
+        );
+        assert_eq!(ev(serde_json::Value::Null).workspace_id(), None);
+    }
+
+    #[test]
+    fn linked_worktrees_are_told_apart() {
+        let w: Workspace = serde_json::from_value(serde_json::json!({
+            "workspace_id": "w2", "label": "feat",
+            "worktree": {"checkout_path": "/wt", "is_linked_worktree": true, "repo_root": "/repo"}
+        }))
+        .unwrap();
+        assert_eq!(w.linked_worktree().unwrap().checkout_path, "/wt");
+    }
+}

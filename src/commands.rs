@@ -103,14 +103,31 @@ pub fn report_reply(backend: &dyn Backend, reply: &Reply, touched: &[String]) ->
     let report = reply.report.clone().unwrap_or_default();
     print_report(&report);
     wait_ready(backend, &report);
-    let dropped: Vec<&String> = touched
+    let list = |names: Vec<&String>| {
+        names
+            .iter()
+            .map(|s| format!("`{s}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let closed: Vec<&String> = touched
         .iter()
         .filter(|t| report.writeback.dropped.contains(t))
         .collect();
-    if !dropped.is_empty() {
+    if !closed.is_empty() {
         bail!(
             "your change was dropped: {} was closed by hand before it applied, and hand changes win",
-            dropped.iter().map(|s| format!("`{s}`")).collect::<Vec<_>>().join(", ")
+            list(closed)
+        );
+    }
+    let moved: Vec<&String> = touched
+        .iter()
+        .filter(|t| report.writeback.moved.contains(t))
+        .collect();
+    if !moved.is_empty() {
+        bail!(
+            "your change was dropped: {} was moved by hand before it applied, and hand changes win",
+            list(moved)
         );
     }
     if !reply.problems.is_empty() {
@@ -309,4 +326,24 @@ pub fn status() -> Result<()> {
         crate::backend::herdr::default_socket().display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anchors_map_to_direction_and_side() {
+        assert_eq!(Anchor::RightOf.dir_after(), (Some(Dir::Row), true));
+        assert_eq!(Anchor::LeftOf.dir_after(), (Some(Dir::Row), false));
+        assert_eq!(Anchor::Below.dir_after(), (Some(Dir::Column), true));
+        assert_eq!(Anchor::Above.dir_after(), (Some(Dir::Column), false));
+        assert_eq!(Anchor::After.dir_after(), (None, true));
+        assert_eq!(Anchor::Before.dir_after(), (None, false));
+    }
+
+    #[test]
+    fn the_flag_beats_the_environment() {
+        assert_eq!(resolve_workspace(Some("w7".into())).unwrap(), "w7");
+    }
 }

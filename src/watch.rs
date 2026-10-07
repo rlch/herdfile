@@ -25,6 +25,8 @@ const FILE_POLL: Duration = Duration::from_millis(400);
 const STATUS_POLL: Duration = Duration::from_secs(1);
 /// How long to wait for herdr to come back before giving up.
 const HERDR_GONE: Duration = Duration::from_secs(60);
+/// How long a pass's report waits for a command to hand it to.
+const UNDELIVERED_FOR: Duration = Duration::from_secs(5);
 /// Passes in a row that change herdr with no outside trigger before the
 /// watcher stops chasing its own tail.
 const MAX_SELF_PASSES: u32 = 6;
@@ -89,6 +91,10 @@ struct Watcher {
     mtimes: HashMap<PathBuf, SystemTime>,
     /// Live workspaces in scope, by id.
     scoped: Vec<String>,
+    /// What passes did that no command was waiting for, so the next command
+    /// that asks hears it (its edit may have been applied by a file poll
+    /// before its request arrived).
+    undelivered: HashMap<String, (Instant, crate::apply::Report)>,
     /// What each workspace looked like after our last pass.
     signatures: HashMap<String, String>,
     fleet: crate::workspaces::FleetState,
@@ -127,7 +133,7 @@ fn signature(snap: &crate::backend::Snapshot, ws: &str) -> String {
 
 pub fn run() -> Result<()> {
     paths::ensure_state_dir()?;
-    let Some(lock) = FileLock::try_acquire(&paths::watch_lock())? else {
+    let Some(lock) = crate::lock::acquire_unless_owned(&paths::watch_lock())? else {
         println!("herdfile: a watcher is already running");
         return Ok(());
     };
@@ -177,6 +183,7 @@ pub fn run() -> Result<()> {
         waiting: HashMap::new(),
         mtimes: HashMap::new(),
         scoped: Vec::new(),
+        undelivered: HashMap::new(),
         signatures: HashMap::new(),
         fleet: Default::default(),
     };
@@ -543,6 +550,23 @@ impl Watcher {
             // Our own write-back edits are not a new edit to react to.
             self.mtimes.insert(path, m);
         }
+        let mut r = r;
+        if let Some(report) = r.report.as_mut() {
+            if waiters.is_empty() {
+                let (at, kept) = self
+                    .undelivered
+                    .entry(ws.to_string())
+                    .or_insert_with(|| (Instant::now(), Default::default()));
+                *at = Instant::now();
+                kept.merge(report.clone());
+            } else if let Some((at, kept)) = self.undelivered.remove(ws) {
+                if at.elapsed() < UNDELIVERED_FOR {
+                    let mut all = kept;
+                    all.merge(std::mem::take(report));
+                    *report = all;
+                }
+            }
+        }
         for s in waiters {
             let copy = Reply {
                 ok: r.ok,
@@ -579,4 +603,24 @@ pub fn apply_once(backend: &dyn Backend, ws: &str) -> Result<Reply> {
         problems,
         ..Reply::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signature_moves_with_layout_not_with_status() {
+        let mut snap: crate::backend::Snapshot =
+            serde_json::from_str(include_str!("../tests/fixtures/snapshot.json")).unwrap();
+        let before = signature(&snap, "w1");
+        snap.panes[0].agent_status = Some("idle".into());
+        assert_eq!(signature(&snap, "w1"), before, "status is not layout");
+        snap.panes[2].label = Some("shell-1".into());
+        assert_ne!(signature(&snap, "w1"), before);
+        let labelled = signature(&snap, "w1");
+        snap.layouts[0].splits[0].ratio = 0.7;
+        assert_ne!(signature(&snap, "w1"), labelled);
+        assert_eq!(signature(&snap, "w9"), "");
+    }
 }

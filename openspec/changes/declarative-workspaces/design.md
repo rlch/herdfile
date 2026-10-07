@@ -39,7 +39,6 @@ herdr facts this design relies on (checked against 0.8.0 source and the 0.9.3 bi
 
 **Non-Goals (this change):**
 
-- Writing back hand moves and reorders. Closes and hand-opened shells only.
 - Running services outside herdr (process-compose or similar).
 - Port allocation between workspaces.
 
@@ -55,7 +54,13 @@ from fighting:
 1. Anything only herdr can know is never written to the file: running or exited, agent status, pane
    ids, focus. Those are read live.
 2. Hand changes are folded into the file (write-back) before the next apply. The file therefore
-   never asks for something the operator just undid.
+   never asks for something the operator just undid. That covers closes, panes opened outside
+   herdfile, dragged sizes, tab renames, and layout changes: the watcher remembers each tab's
+   layout (structure and labels, by tab id) after its own pass, and a tab that differs at the next
+   pass was changed by someone else (a split, a swap, a pane moved in from another tab), so the
+   file takes that tab as it is on screen. Entries the file still wants there but that are not
+   on screen yet (a service just placed) keep their place. Dogfooding showed why this cannot
+   wait: a launcher retitled a new tab, and the watcher moved a working agent to restore it.
 
 Alternative: commands only (`place dev`, `close dev`) with no file. Rejected. Agents get no single
 place to read the layout, and closing becomes per-call bookkeeping again.

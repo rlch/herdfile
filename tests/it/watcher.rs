@@ -1,10 +1,8 @@
 //! The hidden watcher: one per server, detached, reported by status.
 
-mod common;
-
 use std::time::Duration;
 
-use common::TestServer;
+use crate::harness::TestServer;
 
 #[test]
 fn detach_twice_leaves_one_watcher() {
@@ -50,4 +48,11 @@ fn path_warns_when_watcher_is_down() {
     assert_eq!(stdout.trim(), t.state().join("w3.toml").to_str().unwrap());
     assert!(String::from_utf8_lossy(&out.stderr).contains("not running"));
     std::thread::sleep(Duration::from_millis(10));
+}
+
+#[test]
+fn watchdog_runs_alongside_its_server() {
+    let mut t = TestServer::start();
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(t.watchdog_alive(), "watchdog exited while its test runs");
 }

@@ -109,8 +109,10 @@ What the watcher does:
   sets split ratios; nothing is restarted;
 - never takes focus, and leaves moves in the tab you are looking at until you
   leave it (opens and closes still happen);
-- writes your hand changes back: a pane you close leaves the file, and a
-  divider you drag is written as a size rounded to 5%. If your hand change and an agent's
+- writes your hand changes back: a pane you close leaves the file, a pane you
+  move or swap is moved in the file, a tab you rename is renamed, and a
+  divider you drag is written as a size rounded to 5%. It never moves a pane
+  back. If your hand change and an agent's
   command hit the same pane, yours wins and the command says its change was
   dropped.
 
@@ -215,12 +217,22 @@ when it leaves blocked. A held removal clears when the branch merges.
 ```sh
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo test -- --test-threads=2
+cargo test
 ```
 
-Integration tests start their own herdr server per test: a named session under a
-fresh `XDG_CONFIG_HOME` in `/tmp`, never your running one (the harness refuses
-the default socket). Agents in tests are a fake `claude` built from
-`tests/fixtures/fake_claude.rs`; the harness checks a pane resolves `claude` to
-it before any test starts an agent. `HERDFILE_KEEP_TEST_DIR=1` keeps each
-test's folder for inspection.
+Unit tests sit beside the code and need nothing running; several read a real
+herdr snapshot from `tests/fixtures/snapshot.json`. Integration tests are one
+crate, `tests/it/`, and each starts its own herdr server: a named session under
+a fresh `XDG_CONFIG_HOME` in `/tmp`, never your running one (the harness refuses
+the default socket). They are built not to disturb you:
+
+- at most 3 servers run at once (`HERDFILE_TEST_SERVERS=n` to change), so a
+  plain `cargo test` is light;
+- if the test process dies (Ctrl-C), a watchdog stops its servers and removes
+  their folders;
+- servers run with sounds and pop-ups off, panes run a plain shell, and git
+  ignores your global config (no hooks, no signing prompts);
+- agents are a fake `claude` built from `tests/fixtures/fake_claude.rs`, and the
+  harness checks a pane resolves `claude` to it before any test starts one.
+
+`HERDFILE_KEEP_TEST_DIR=1` keeps each test's folder for inspection.

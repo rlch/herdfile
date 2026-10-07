@@ -37,17 +37,21 @@ pub struct Herdr {
 
 /// The socket a plain `herdr` CLI call would use from this environment.
 pub fn default_socket() -> PathBuf {
-    if let Some(path) = std::env::var_os("HERDR_SOCKET_PATH").filter(|v| !v.is_empty()) {
+    socket_from(|k| std::env::var(k).ok())
+}
+
+/// herdr's own lookup: `HERDR_SOCKET_PATH`, else the session named by
+/// `HERDR_SESSION`, else the default session, under `XDG_CONFIG_HOME`.
+fn socket_from(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    let var = |k: &str| var(k).filter(|v| !v.is_empty());
+    if let Some(path) = var("HERDR_SOCKET_PATH") {
         return PathBuf::from(path);
     }
-    let config = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+    let config = match var("XDG_CONFIG_HOME") {
         Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"),
+        None => PathBuf::from(var("HOME").unwrap_or_default()).join(".config"),
     };
-    match std::env::var("HERDR_SESSION")
-        .ok()
-        .filter(|s| !s.is_empty() && s != "default")
-    {
+    match var("HERDR_SESSION").filter(|s| s != "default") {
         Some(name) => config.join("herdr/sessions").join(name).join("herdr.sock"),
         None => config.join("herdr/herdr.sock"),
     }
@@ -291,5 +295,104 @@ impl Backend for Herdr {
             String::from_utf8_lossy(&out.stdout).into_owned(),
             String::from_utf8_lossy(&out.stderr).into_owned(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+
+    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: std::collections::HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |k| map.get(k).cloned()
+    }
+
+    #[test]
+    fn socket_lookup_follows_herdr() {
+        assert_eq!(
+            socket_from(env(&[
+                ("HERDR_SOCKET_PATH", "/s.sock"),
+                ("HERDR_SESSION", "x")
+            ])),
+            PathBuf::from("/s.sock")
+        );
+        assert_eq!(
+            socket_from(env(&[("HOME", "/h"), ("HERDR_SESSION", "t")])),
+            PathBuf::from("/h/.config/herdr/sessions/t/herdr.sock")
+        );
+        assert_eq!(
+            socket_from(env(&[
+                ("XDG_CONFIG_HOME", "/c"),
+                ("HERDR_SESSION", "default")
+            ])),
+            PathBuf::from("/c/herdr/herdr.sock")
+        );
+    }
+
+    /// A one-request herdr stand-in on a temp socket.
+    fn fake_herdr(replies: &'static [&'static str]) -> (tempfile::TempDir, Herdr) {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("h.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let mut stream = stream;
+            for reply in replies {
+                writeln!(stream, "{reply}").unwrap();
+            }
+        });
+        let h = Herdr {
+            socket,
+            bin: PathBuf::from("herdr"),
+        };
+        (dir, h)
+    }
+
+    #[test]
+    fn errors_carry_code_and_message() {
+        let (_d, h) =
+            fake_herdr(&[r#"{"id":"x","error":{"code":"agent_blocked","message":"is blocked"}}"#]);
+        let err = h
+            .request("agent.prompt", json!({}))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "herdr agent.prompt: agent_blocked: is blocked");
+    }
+
+    #[test]
+    fn same_tab_move_is_an_error() {
+        let (_d, h) = fake_herdr(&[
+            r#"{"id":"x","result":{"move_result":{"changed":false,"reason":"same_tab","pane":{"pane_id":"w1:p1"}}}}"#,
+        ]);
+        let at = Placement {
+            target_pane: "w1:p2",
+            dir: crate::layout::Dir::Row,
+            ratio: None,
+        };
+        let err = h.move_pane("w1:p1", "w1:t1", &at).unwrap_err().to_string();
+        assert!(err.contains("same_tab"), "{err}");
+    }
+
+    #[test]
+    fn subscribe_reports_start_then_events() {
+        let (_d, h) = fake_herdr(&[
+            r#"{"id":"herdfile:subscribe","result":{"type":"subscription_started"}}"#,
+            r#"{"event":"pane_closed","data":{"pane_id":"w3:p2"}}"#,
+        ]);
+        let mut seen = Vec::new();
+        h.subscribe(&mut |e| {
+            seen.push((e.kind.clone(), e.workspace_id()));
+            seen.len() < 2
+        })
+        .unwrap();
+        assert_eq!(seen[0].0, "subscribed");
+        assert_eq!(seen[1], ("pane_closed".to_string(), Some("w3".to_string())));
     }
 }

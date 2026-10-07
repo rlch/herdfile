@@ -37,6 +37,7 @@
 - [x] 5.3 Hand-opened pane is added as `unmanaged` in its tab and position
 - [x] 5.5 Dragged sizes: on `layout_updated`, read ratios, round to 5%, write back if changed
 - [x] 5.4 Collision rule: hand change wins, dropped edit is reported
+- [x] 5.6 Layout changes made outside herdfile (moves between tabs, swaps, splits) are written back; tab renames too; unnamed tabs are pinned
 
 ## 6. Workspaces file
 

@@ -23,5 +23,6 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      # Integration tests start their own throwaway herdr servers.
-      - run: cargo test -- --test-threads=2
+      # Integration tests start their own throwaway herdr servers, at most
+      # three at a time.
+      - run: cargo test

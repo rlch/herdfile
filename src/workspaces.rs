@@ -991,4 +991,96 @@ mod tests {
         assert_eq!(expand_command("cl --{model}", Some("opus")), "cl --opus");
         assert_eq!(expand_command("cl --{model}", None), "cl");
     }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t.invalid")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t.invalid")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn commit(dir: &Path, file: &str) {
+        std::fs::write(dir.join(file), file).unwrap();
+        git(dir, &["add", file]);
+        git(dir, &["commit", "-q", "-m", file]);
+    }
+
+    #[test]
+    fn merged_handles_plain_squash_and_gone_branches() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        git(repo, &["init", "-q", "-b", "main"]);
+        commit(repo, "a");
+        git(repo, &["checkout", "-q", "-b", "feat"]);
+        commit(repo, "b");
+        assert!(!merged(repo, "feat", Some("main")).unwrap());
+        assert_eq!(current_branch(repo).as_deref(), Some("feat"));
+        git(repo, &["checkout", "-q", "main"]);
+        git(repo, &["merge", "-q", "--squash", "feat"]);
+        git(repo, &["commit", "-q", "-m", "squash"]);
+        assert!(
+            merged(repo, "feat", Some("main")).unwrap(),
+            "squash merge counts"
+        );
+        assert!(merged(repo, "feat", None).unwrap(), "base defaults to main");
+        assert!(
+            merged(repo, "gone", Some("main")).unwrap(),
+            "no branch, nothing to lose"
+        );
+        git(repo, &["checkout", "-q", "--detach", "HEAD"]);
+        assert_eq!(current_branch(repo), None);
+    }
+
+    #[test]
+    fn tree_shows_parents_and_live_status() {
+        let f = parse(
+            "[land]\ndir = \"~\"\npurpose = \"land PRs\"\n[review]\ndir = \"~\"\nparent = \"land\"\nremoving = true\n[other]\ndir = \"~\"\nunmanaged = true\n",
+        )
+        .unwrap();
+        let snap: Snapshot = serde_json::from_value(serde_json::json!({
+            "workspaces": [{"workspace_id": "w1", "label": "land"}],
+            "panes": [{"pane_id": "w1:p1", "tab_id": "w1:t1", "workspace_id": "w1",
+                       "label": "agent", "agent": "claude", "agent_status": "working"}]
+        }))
+        .unwrap();
+        assert_eq!(
+            render_tree(&f, &snap),
+            "operator\n├─ land  [working]  land PRs\n│  └─ review  [not open, removing]\n└─ other  [not open, unmanaged]\n"
+        );
+    }
+
+    #[test]
+    fn add_writes_an_entry() {
+        let mut f = parse("").unwrap();
+        f.add(Entry {
+            name: "review".into(),
+            dir: "~/dev/app".into(),
+            branch: Some("review".into()),
+            parent: Some(OPERATOR.into()),
+            agent: Some(AgentSpec {
+                brief: Some("b.md".into()),
+                model: Some("opus".into()),
+            }),
+            ..Entry::default()
+        });
+        f.set_removing("review");
+        let again = WorkspacesFile::parse(&f.doc.to_string(), Path::new("/s/w.toml")).unwrap();
+        let e = again.get("review").unwrap();
+        assert_eq!(e.branch.as_deref(), Some("review"));
+        assert_eq!(e.agent.as_ref().unwrap().model.as_deref(), Some("opus"));
+        assert!(e.removing);
+    }
 }

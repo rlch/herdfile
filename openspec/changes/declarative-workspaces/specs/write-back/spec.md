@@ -45,6 +45,29 @@ file, keeping its place and contents, and MUST NOT move panes to restore the old
 - **WHEN** a tab listed as `[tab.1]` is renamed to `my title` outside herdfile
 - **THEN** the file lists `[tab."my title"]` with the same panes, and no pane moves
 
+### Requirement: Layout changes are written back
+The watcher SHALL write a tab into the file as it is on screen when the tab's layout (its rows,
+columns, and which pane is where) was changed by something other than the watcher, including a
+pane moved in from another tab or two panes swapped, and MUST NOT move panes back. Entries the
+file lists for that tab that are not on screen yet SHALL keep their place after their neighbour.
+
+#### Scenario: Pane moved to another tab
+- **WHEN** `test` is moved by hand from tab `main` to tab `services`
+- **THEN** the file lists `test` in `services`, not in `main`, and it stays where it was put
+
+#### Scenario: Panes swapped
+- **WHEN** `agent` and `test` are swapped by hand in `row = ["agent", "test"]`
+- **THEN** the file has `row = ["test", "agent"]` and they stay swapped
+
+#### Scenario: Placed while the operator splits
+- **WHEN** an agent places `logs` after `agent` and the operator splits a pane in the same tab
+  before apply runs
+- **THEN** the file keeps `logs` after `agent`, records the new pane, and `logs` is opened
+
+#### Scenario: Unnamed tabs keep their names
+- **WHEN** a tab still has herdr's default name (its position) and another tab closes
+- **THEN** the tab keeps the name the file uses for it
+
 ### Requirement: Dragged sizes are written back
 When the operator changes a split ratio by hand, the watcher SHALL write the new size into the file,
 rounded to the nearest 5%. If the rounded size equals the file's size, the file SHALL NOT change.
@@ -65,8 +88,8 @@ Events caused by the watcher's own operations MUST NOT be written back.
 - **THEN** the file is not changed by write-back
 
 ### Requirement: Hand changes win collisions
-When a hand change and a command touch the same pane before apply runs, the hand change SHALL
-win, and the command SHALL report that its change was dropped.
+The hand change SHALL win when a hand change (a close or a move) and a command touch the same pane
+before apply runs, and the command SHALL report that its change was dropped.
 
 #### Scenario: Close versus move
 - **WHEN** an agent runs `herdfile place dev --tab main`, and the operator closes `dev` before

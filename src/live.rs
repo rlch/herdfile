@@ -261,7 +261,7 @@ pub fn parse_split_path(id: &str) -> Option<Vec<bool>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{parse_tree_arg, shape_of};
+    use crate::layout::{parse_tree_arg, shape_of, Shape};
 
     fn snap_json(v: serde_json::Value) -> Snapshot {
         serde_json::from_value(v).unwrap()
@@ -334,5 +334,21 @@ mod tests {
         assert!((root.2 - 0.7).abs() < 1e-9);
         let col = ratios.iter().find(|r| r.0 == vec![true]).unwrap();
         assert!((col.2 - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rebuilds_a_real_layout() {
+        let snap: Snapshot =
+            serde_json::from_str(include_str!("../tests/fixtures/snapshot.json")).unwrap();
+        let tree = LiveNode::of_tab(&snap, "w1:t1").unwrap();
+        let ids: Vec<_> = tree.leaves().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, ["w1:p1", "w1:p2", "w1:p3"]);
+        let ratios = tree.ratios();
+        assert_eq!(ratios[0].0, Vec::<bool>::new());
+        assert!((ratios[0].1 - 0.6).abs() < 1e-6);
+        let shape = tree.shape();
+        assert!(matches!(&shape, Shape::Split(Dir::Row, c) if c.len() == 2));
+        assert!(LiveNode::of_tab(&snap, "w1:t2").is_some());
+        assert!(LiveNode::of_tab(&snap, "w1:t9").is_none());
     }
 }

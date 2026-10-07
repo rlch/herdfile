@@ -37,6 +37,25 @@ pub struct Report {
 }
 
 impl Report {
+    /// Fold a later pass's report into this one.
+    pub fn merge(&mut self, later: Report) {
+        self.opened.extend(later.opened);
+        self.opened_ready.extend(later.opened_ready);
+        self.closed.extend(later.closed);
+        self.moved.extend(later.moved);
+        self.resized.extend(later.resized);
+        self.pending = later.pending;
+        self.deferred = later.deferred;
+        self.notes = later.notes;
+        let wb = later.writeback;
+        self.writeback.dropped.extend(wb.dropped);
+        self.writeback.recorded.extend(wb.recorded);
+        self.writeback.resized.extend(wb.resized);
+        self.writeback.renamed.extend(wb.renamed);
+        self.writeback.moved.extend(wb.moved);
+        self.writeback.reshaped.extend(wb.reshaped);
+    }
+
     pub fn ops(&self) -> usize {
         self.opened.len() + self.closed.len() + self.moved.len() + self.resized.len()
     }
@@ -59,6 +78,8 @@ impl Report {
         push("recorded as unmanaged", &self.writeback.recorded);
         push("sizes written back", &self.writeback.resized);
         push("tabs renamed by hand", &self.writeback.renamed);
+        push("moved by hand", &self.writeback.moved);
+        push("layout taken from screen", &self.writeback.reshaped);
         push("marked for removal once idle", &self.pending);
         push("deferred until you leave the tab", &self.deferred);
         lines.extend(self.notes.iter().cloned());
@@ -130,6 +151,9 @@ pub fn apply(target: &Target, state: &mut WsState) -> Result<Report> {
         file.save()?;
     }
     file.validate(&services)?;
+    // Until this pass records what it leaves, no layout counts as ours: a
+    // pass that fails half way is never mistaken for a hand change.
+    state.layouts.clear();
 
     let mut ctx = Ctx {
         backend,
@@ -578,6 +602,16 @@ impl Ctx<'_> {
             .tabs_of(self.ws)
             .filter_map(|t| t.label.clone().map(|l| (t.tab_id.clone(), l)))
             .collect();
+        self.state.layouts = snap
+            .tabs_of(self.ws)
+            .filter_map(|t| {
+                let tree = LiveNode::of_tab(&snap, &t.tab_id)?;
+                Some((
+                    t.tab_id.clone(),
+                    crate::writeback::layout_key(&tree.shape()),
+                ))
+            })
+            .collect();
         self.state.save(self.ws);
         self.state.ratios.clear();
         for tab in snap.tabs_of(self.ws) {
@@ -653,4 +687,69 @@ pub fn converged(
         }
     }
     Ok(problems)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::layout::parse_tree_arg;
+
+    #[test]
+    fn reports_merge_and_summarise() {
+        let mut a = Report {
+            opened: vec!["dev".into()],
+            ..Report::default()
+        };
+        let mut b = Report {
+            closed: vec!["test".into()],
+            deferred: vec!["main".into()],
+            ..Report::default()
+        };
+        b.writeback.moved.push("logs".into());
+        a.merge(b);
+        assert_eq!(a.ops(), 2);
+        let lines = a.summary();
+        assert!(lines.contains(&"opened: dev".to_string()), "{lines:?}");
+        assert!(lines.contains(&"closed: test".to_string()), "{lines:?}");
+        assert!(
+            lines.contains(&"moved by hand: logs".to_string()),
+            "{lines:?}"
+        );
+        assert!(
+            lines.contains(&"deferred until you leave the tab: main".to_string()),
+            "{lines:?}"
+        );
+        assert!(Report::default().summary().is_empty());
+    }
+
+    #[test]
+    fn container_direction_of_a_leaf() {
+        let t = parse_tree_arg(r#"row = ["agent", { column = ["test", "dev"] }]"#, "t").unwrap();
+        assert_eq!(container_dir_of(&t, "agent"), Some(crate::layout::Dir::Row));
+        assert_eq!(
+            container_dir_of(&t, "dev"),
+            Some(crate::layout::Dir::Column)
+        );
+        assert_eq!(container_dir_of(&t, "nope"), None);
+    }
+
+    #[test]
+    fn workspace_dir_prefers_the_file_then_the_agent() {
+        let snap: Snapshot =
+            serde_json::from_str(include_str!("../tests/fixtures/snapshot.json")).unwrap();
+        let mut file = WorkspaceFile::empty(Path::new("/s/w1.toml"));
+        assert_eq!(
+            workspace_dir(&file, &snap, "w1"),
+            Some(PathBuf::from("/private/tmp"))
+        );
+        file.set_dir("/repo");
+        assert_eq!(
+            workspace_dir(&file, &snap, "w1"),
+            Some(PathBuf::from("/repo"))
+        );
+        assert_eq!(
+            workspace_dir(&WorkspaceFile::empty(Path::new("/x")), &snap, "w9"),
+            None
+        );
+    }
 }
