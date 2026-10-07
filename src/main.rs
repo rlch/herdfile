@@ -8,10 +8,12 @@ mod control;
 mod layout;
 mod live;
 mod lock;
+mod needs;
 mod paths;
 mod services;
 mod time;
 mod watch;
+mod workspaces;
 mod writeback;
 mod wsfile;
 
@@ -129,7 +131,63 @@ enum Cmd {
         /// Overwrite an existing file
         #[arg(long)]
         force: bool,
+        /// Every open workspace: into the file of workspaces as unmanaged,
+        /// and a workspace file for each that has none. Closes nothing.
+        #[arg(long, conflicts_with_all = ["workspace", "force"])]
+        all: bool,
     },
+    /// The file of workspaces: add or remove a workspace
+    #[command(subcommand)]
+    Ws(WsCmd),
+    /// Print the workspaces as a tree, with live agent status
+    Tree,
+    /// Things waiting on the operator
+    Needs {
+        #[command(subcommand)]
+        cmd: Option<NeedsCmd>,
+    },
+    /// Put a question on the "needs you" list
+    Ask { question: String },
+}
+
+#[derive(Subcommand)]
+enum WsCmd {
+    /// Open a workspace (a herdr worktree with --branch) and start its agent
+    Add {
+        /// Workspace name, also its herdr label and agent name ([a-z][a-z0-9_-]{0,31})
+        name: String,
+        /// The folder (a path; `~` allowed)
+        #[arg(long)]
+        dir: String,
+        /// Open a herdr worktree on this branch
+        #[arg(long)]
+        branch: Option<String>,
+        /// The branch's base (default: herdr's)
+        #[arg(long, requires = "branch")]
+        base: Option<String>,
+        /// Where to put the worktree (default: herdr's)
+        #[arg(long, requires = "branch")]
+        path: Option<String>,
+        /// Parent workspace, or `operator` (default: the calling workspace)
+        #[arg(long)]
+        parent: Option<String>,
+        #[arg(long)]
+        purpose: Option<String>,
+        /// A file the agent is told to read and follow
+        #[arg(long)]
+        brief: Option<String>,
+        /// Fills {model} in the configured agent command
+        #[arg(long)]
+        model: Option<String>,
+    },
+    /// Remove a workspace once its agent is idle and its branch merged
+    Remove { name: String },
+}
+
+#[derive(Subcommand)]
+enum NeedsCmd {
+    /// Clear an entry
+    Done { id: String },
 }
 
 fn main() {
@@ -215,6 +273,40 @@ fn run(cmd: Cmd) -> anyhow::Result<()> {
             },
         ),
         Cmd::Apply { ws } => commands::apply_now(&resolve_workspace(ws.workspace)?),
-        Cmd::Adopt { workspace, force } => adopt::adopt(&resolve_workspace(workspace)?, force),
+        Cmd::Adopt { all: true, .. } => workspaces::adopt_all(),
+        Cmd::Adopt {
+            workspace, force, ..
+        } => adopt::adopt(&resolve_workspace(workspace)?, force),
+        Cmd::Ws(WsCmd::Add {
+            name,
+            dir,
+            branch,
+            base,
+            path,
+            parent,
+            purpose,
+            brief,
+            model,
+        }) => workspaces::add(workspaces::AddArgs {
+            name,
+            dir,
+            branch,
+            base,
+            path,
+            parent,
+            purpose,
+            brief,
+            model,
+        }),
+        Cmd::Ws(WsCmd::Remove { name }) => workspaces::remove(&name),
+        Cmd::Tree => workspaces::tree(),
+        Cmd::Needs { cmd: None } => {
+            needs::print();
+            Ok(())
+        }
+        Cmd::Needs {
+            cmd: Some(NeedsCmd::Done { id }),
+        } => needs::done(&id),
+        Cmd::Ask { question } => needs::ask(&question),
     }
 }

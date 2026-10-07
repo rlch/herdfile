@@ -25,6 +25,8 @@ pub struct Snapshot {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Workspace {
     pub workspace_id: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -84,6 +86,12 @@ pub struct LayoutSplit {
 impl Snapshot {
     pub fn workspace(&self, id: &str) -> Option<&Workspace> {
         self.workspaces.iter().find(|w| w.workspace_id == id)
+    }
+
+    pub fn workspace_by_label(&self, label: &str) -> Option<&Workspace> {
+        self.workspaces
+            .iter()
+            .find(|w| w.label.as_deref() == Some(label))
     }
 
     pub fn tabs_of<'a>(&'a self, workspace: &'a str) -> impl Iterator<Item = &'a Tab> + 'a {
@@ -176,6 +184,8 @@ pub trait Backend {
     /// Blocking stream of events. Returns when the connection ends.
     fn subscribe(&self, on_event: &mut dyn FnMut(Event) -> bool) -> Result<()>;
 
+    fn create_workspace(&self, label: &str, cwd: &str) -> Result<(String, String, String)>;
+    fn close_workspace(&self, workspace: &str) -> Result<()>;
     /// Returns (tab id, root pane id).
     fn create_tab(&self, workspace: &str, label: &str, spawn: &Spawn) -> Result<(String, String)>;
     fn rename_tab(&self, tab: &str, label: &str) -> Result<()>;

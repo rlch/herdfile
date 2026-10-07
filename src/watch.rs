@@ -89,6 +89,7 @@ struct Watcher {
     mtimes: HashMap<PathBuf, SystemTime>,
     /// What each workspace looked like after our last pass.
     signatures: HashMap<String, String>,
+    fleet: crate::workspaces::FleetState,
 }
 
 /// A cheap fingerprint of a workspace's layout: pane ids and labels per tab,
@@ -174,6 +175,7 @@ pub fn run() -> Result<()> {
         waiting: HashMap::new(),
         mtimes: HashMap::new(),
         signatures: HashMap::new(),
+        fleet: Default::default(),
     };
     // Apply every existing file once at start.
     w.scan_files(true);
@@ -300,6 +302,7 @@ impl Watcher {
     }
 
     fn on_event(&mut self, e: Event) {
+        self.fleet.dirty = true;
         if e.kind == "subscribed" {
             return;
         }
@@ -328,6 +331,17 @@ impl Watcher {
                 self.self_passes.remove(&workspace);
                 self.waiting.entry(workspace).or_default().push(stream);
             }
+            Request::Workspaces => {
+                self.fleet.dirty = true;
+                self.fleet_tick();
+                reply(
+                    stream,
+                    &Reply {
+                        ok: true,
+                        ..Reply::default()
+                    },
+                );
+            }
         }
     }
 
@@ -351,10 +365,17 @@ impl Watcher {
             }
         }
         self.mtimes.retain(|p, _| p.exists());
+        if let Ok(m) = std::fs::metadata(paths::workspaces_file()).and_then(|m| m.modified()) {
+            let path = paths::workspaces_file();
+            if self.mtimes.get(&path) != Some(&m) {
+                self.mtimes.insert(path, m);
+                self.fleet.dirty = true;
+            }
+        }
     }
 
     /// Agent status is not an event herdr broadcasts, so poll it: close
-    /// panes waiting for idle, track blocked agents, finish removals.
+    /// panes waiting for idle, finish removals.
     fn poll_status(&mut self) {
         let Ok(snap) = self.backend.snapshot() else {
             return;
@@ -385,6 +406,13 @@ impl Watcher {
             if ready {
                 self.mark(&ws, Duration::ZERO, true);
             }
+        }
+        self.fleet_tick();
+    }
+
+    fn fleet_tick(&mut self) {
+        if let Err(e) = crate::workspaces::tick(&self.backend, &mut self.fleet) {
+            log(&format!("workspaces: {e:#}"));
         }
     }
 

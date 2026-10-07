@@ -13,7 +13,11 @@ use crate::apply::Report;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     Ping,
-    Apply { workspace: String },
+    Apply {
+        workspace: String,
+    },
+    /// Re-read the file of workspaces and act on pending removals.
+    Workspaces,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

@@ -163,6 +163,24 @@ impl Backend for Herdr {
         Ok(())
     }
 
+    fn create_workspace(&self, label: &str, cwd: &str) -> Result<(String, String, String)> {
+        let r = self.request(
+            "workspace.create",
+            json!({ "label": label, "cwd": cwd, "focus": false }),
+        )?;
+        Ok((
+            str_at(&r, &["workspace", "workspace_id"])?.to_string(),
+            str_at(&r, &["tab", "tab_id"])?.to_string(),
+            str_at(&r, &["root_pane", "pane_id"])?.to_string(),
+        ))
+    }
+
+    fn close_workspace(&self, workspace: &str) -> Result<()> {
+        // Never `close_group`: a primary workspace with linked worktrees stays.
+        self.request("workspace.close", json!({ "workspace_id": workspace }))?;
+        Ok(())
+    }
+
     fn create_tab(&self, workspace: &str, label: &str, spawn: &Spawn) -> Result<(String, String)> {
         let r = self.request(
             "tab.create",

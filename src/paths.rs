@@ -16,8 +16,25 @@ pub fn state_dir() -> PathBuf {
     }
 }
 
+/// `$XDG_CONFIG_HOME/herdfile/config.toml`, defaulting to `~/.config/herdfile/config.toml`.
+pub fn config_file() -> PathBuf {
+    let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => home().join(".config"),
+    };
+    base.join("herdfile/config.toml")
+}
+
 pub fn workspace_file(workspace_id: &str) -> PathBuf {
     state_dir().join(format!("{workspace_id}.toml"))
+}
+
+pub fn workspaces_file() -> PathBuf {
+    state_dir().join("workspaces.toml")
+}
+
+pub fn needs_file() -> PathBuf {
+    state_dir().join("needs.jsonl")
 }
 
 pub fn watch_lock() -> PathBuf {

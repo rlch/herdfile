@@ -39,16 +39,16 @@
 
 ## 6. Workspaces file
 
-- [ ] 6.1 Parse and validate `workspaces.toml` (unique names, known parents, no cycles)
-- [ ] 6.2 `herdfile ws add`: `herdr worktree create --no-focus` or workspace on `dir`, write its workspace file, start the agent (`agent start --kind` or a typed wrapper `command`), wait for ready, send the brief with `agent prompt`
-- [ ] 6.3 `herdfile ws remove`: idle wait, merged check, `herdr worktree remove`, re-parent children
-- [ ] 6.4 `herdfile tree` with live status; workspace write-back; `adopt --all`
+- [x] 6.1 Parse and validate `workspaces.toml` (unique names, known parents, no cycles)
+- [x] 6.2 `herdfile ws add`: `herdr worktree create --no-focus` or workspace on `dir`, write its workspace file, start the agent (`agent start --kind` or a typed wrapper `command`), wait for ready, send the brief with `agent prompt`
+- [x] 6.3 `herdfile ws remove`: idle wait, merged check, `herdr worktree remove`, re-parent children
+- [x] 6.4 `herdfile tree` with live status; workspace write-back; `adopt --all`
 
 ## 7. Messaging and needs you
 
-- [ ] 7.1 Name each workspace agent after its workspace (`agent start <name>` / `agent rename`); validate names against herdr's pattern
+- [x] 7.1 Name each workspace agent after its workspace (`agent start <name>` / `agent rename`); validate names against herdr's pattern
 - [ ] 7.4 `herdfile tell <name|parent>`: sender prefix, pass `--wait/--until/--timeout` to `herdr agent prompt`, print reply via `agent read`, pass errors through
-- [ ] 7.2 `needs.jsonl` format (documented), `herdfile needs`, `needs done`, `ask`
+- [x] 7.2 `needs.jsonl` format (documented), `herdfile needs`, `needs done`, `ask`
 - [ ] 7.3 Add and clear entries on blocked, held removal, merge
 
 ## 8. Verify

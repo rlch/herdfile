@@ -98,10 +98,17 @@ impl TestServer {
         for var in SCRUB {
             cmd.env_remove(var);
         }
+        let path = format!(
+            "{}:{}",
+            fake_bin_dir().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
         cmd.env("XDG_CONFIG_HOME", dir)
+            .env("PATH", path)
             .env("XDG_STATE_HOME", dir.join("state"))
-            // Plain shells start fast and predictably.
-            .env("SHELL", "/bin/sh")
+            // Plain shells start fast and predictably, with the fake agent
+            // CLIs first on PATH.
+            .env("SHELL", fake_bin_dir().join("test-shell"))
             .env("ENV", "/dev/null");
     }
 
@@ -398,6 +405,159 @@ impl Drop for TestServer {
         if std::env::var_os("HERDFILE_KEEP_TEST_DIR").is_none() {
             let _ = std::fs::remove_dir_all(&self.dir);
         }
+    }
+}
+
+/// The fake `claude` (tests/fixtures/fake_claude.rs), compiled once.
+fn fake_bin_dir() -> &'static PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fakebin");
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("claude");
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_claude.rs");
+        let lock = dir.join(format!("build-{}", std::process::id()));
+        let fresh = std::fs::metadata(&bin)
+            .and_then(|b| Ok(b.modified()? >= std::fs::metadata(&src)?.modified()?))
+            .unwrap_or(false);
+        if !fresh {
+            let tmp = lock.with_extension("bin");
+            let out = Command::new("rustc")
+                .args(["-O", "--edition", "2021", "-o"])
+                .arg(&tmp)
+                .arg(&src)
+                .output()
+                .expect("rustc");
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            std::fs::rename(&tmp, &bin).unwrap();
+        }
+        // Pane shells: a login shell would re-sort PATH and find the real
+        // agent CLIs, so panes run a plain shell with the fakes first.
+        let shell = dir.join("test-shell");
+        std::fs::write(
+            &shell,
+            format!(
+                "#!/bin/sh\nPATH=\"{}:$PATH\"\nexport PATH\nexec /bin/sh \"$@\"\n",
+                dir.display()
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+        dir
+    })
+}
+
+impl TestServer {
+    /// Start agents through a wrapper typed at the shell, as the operator's
+    /// `cl --{model}` does.
+    pub fn use_wrapper_command(&self) {
+        let cfg = self.dir.join("herdfile");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(
+            cfg.join("config.toml"),
+            "[agent]\ncommand = \"WRAPPED=1 claude --{model}\"\n",
+        )
+        .unwrap();
+    }
+
+    /// Refuse to go on unless `claude` in a pane of `ws` is the fake: a test
+    /// must never start a real agent.
+    pub fn require_fake_agents(&self, pane: &str) {
+        let out = self.dir.join("which-claude");
+        let _ = std::fs::remove_file(&out);
+        self.herdr(&[
+            "pane",
+            "run",
+            pane,
+            &format!("command -v claude > {}", out.display()),
+        ]);
+        self.eventually("claude resolved in a pane", || {
+            std::fs::read_to_string(&out)
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
+        });
+        let found = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(
+            PathBuf::from(found.trim()),
+            fake_bin_dir().join("claude"),
+            "panes would start a real claude; refusing to run"
+        );
+    }
+
+    /// A git repo with one commit on main.
+    pub fn git_repo(&self) -> PathBuf {
+        let repo = self.dir.join("git");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .output()
+                .unwrap();
+            assert!(
+                ok.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&ok.stderr)
+            );
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "init"]);
+        repo
+    }
+
+    pub fn git(&self, dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    pub fn workspaces_file(&self) -> String {
+        std::fs::read_to_string(self.state().join("workspaces.toml")).unwrap_or_default()
+    }
+
+    pub fn ws_id(&self, label: &str) -> Option<String> {
+        self.snapshot()["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["label"] == label)
+            .map(|w| w["workspace_id"].as_str().unwrap().to_string())
+    }
+
+    pub fn read_pane(&self, pane: &str) -> String {
+        let out = self.try_herdr(&[
+            "pane",
+            "read",
+            pane,
+            "--source",
+            "recent-unwrapped",
+            "--lines",
+            "200",
+        ]);
+        String::from_utf8_lossy(&out.stdout).into_owned()
     }
 }
 
