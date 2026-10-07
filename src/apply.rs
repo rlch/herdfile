@@ -183,8 +183,11 @@ struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
+    /// herdr's view, with tabs under the names the file uses.
     fn snap(&self) -> Result<Snapshot> {
-        self.backend.snapshot()
+        let mut snap = self.backend.snapshot()?;
+        crate::writeback::apply_aliases(&mut snap, self.ws, self.state);
+        Ok(snap)
     }
 
     fn service(&self, leaf: &Leaf) -> Option<&Service> {
@@ -659,8 +662,10 @@ pub fn converged(
     ws: &str,
     file: &WorkspaceFile,
     services: &Services,
+    state: &WsState,
 ) -> Result<Vec<String>> {
-    let snap = backend.snapshot()?;
+    let mut snap = backend.snapshot()?;
+    crate::writeback::apply_aliases(&mut snap, ws, state);
     let mut problems = Vec::new();
     for tab in &file.tabs {
         let placeable = |l: &Leaf| {

@@ -35,6 +35,10 @@ pub struct WsState {
     /// Tabs given a fixed label, by tab id.
     #[serde(default)]
     pub pinned: BTreeSet<String>,
+    /// Tabs whose title another tab in the workspace also has: (that title,
+    /// the name the file uses), by tab id. Dropped when the title changes.
+    #[serde(default)]
+    pub aliases: BTreeMap<String, (String, String)>,
     /// Each tab's layout (structure and labels, no sizes) after our last
     /// pass, by tab id. A tab that differs was changed outside herdfile.
     #[serde(default)]
@@ -116,37 +120,102 @@ pub fn label_prefix(pane: &Pane) -> String {
     }
 }
 
-/// Give every tab of a workspace a unique, fixed label: the file names tabs
-/// by label, and herdr neither requires labels to be unique nor keeps an
-/// unnamed tab's label (it is its position, and shifts when tabs move or
-/// close). Each tab is renamed once, to the label it shows, which fixes it.
+/// Tab titles belong to whoever set them (often an agent), so herdfile only
+/// ever renames a tab still showing herdr's default, a number, which herdr
+/// shifts when tabs close or move. Renaming it to the number it shows fixes it.
+/// Two tabs with the same title are told apart by a name kept only in
+/// herdfile's own files ([`WsState::aliases`]), never by renaming in herdr.
 fn label_tabs(
     backend: &dyn Backend,
     snap: &mut Snapshot,
     ws: &str,
-    pinned: &mut BTreeSet<String>,
+    state: &mut WsState,
 ) -> Result<()> {
+    // Work from herdr's own titles: undo any alias already applied.
     let mut tabs: Vec<(String, u32, Option<String>)> = snap
         .tabs_of(ws)
-        .map(|t| (t.tab_id.clone(), t.number, t.label.clone()))
+        .map(|t| {
+            let raw = match (state.aliases.get(&t.tab_id), &t.label) {
+                (Some((was, alias)), Some(label)) if label == alias => Some(was.clone()),
+                _ => t.label.clone(),
+            };
+            (t.tab_id.clone(), t.number, raw)
+        })
         .collect();
     tabs.sort_by_key(|t| t.1);
-    let mut seen = HashSet::new();
-    for (id, number, label) in tabs {
-        let mut name = label.clone().unwrap_or_else(|| number.to_string());
-        if !seen.insert(name.clone()) {
-            name = format!("{name}-{number}");
-            seen.insert(name.clone());
-        }
-        if label.as_deref() != Some(name.as_str()) || !pinned.contains(&id) {
-            backend.rename_tab(&id, &name)?;
-            pinned.insert(id.clone());
-            if let Some(t) = snap.tabs.iter_mut().find(|t| t.tab_id == id) {
-                t.label = Some(name);
+    let live: HashSet<String> = tabs.iter().map(|t| t.0.clone()).collect();
+    state.aliases.retain(|id, _| live.contains(id));
+    state.pinned.retain(|id| live.contains(id));
+
+    // Pin default (numeric) names, checking just before that nobody has
+    // retitled the tab since the snapshot.
+    let unpinned: Vec<(String, String)> = tabs
+        .iter()
+        .filter(|(id, _, l)| {
+            !state.pinned.contains(id) && l.as_deref().map(is_default_tab_name).unwrap_or(false)
+        })
+        .map(|(id, _, l)| (id.clone(), l.clone().unwrap_or_default()))
+        .collect();
+    if !unpinned.is_empty() {
+        let fresh = backend.snapshot()?;
+        for (id, label) in unpinned {
+            let now = fresh
+                .tabs
+                .iter()
+                .find(|t| t.tab_id == id)
+                .and_then(|t| t.label.clone());
+            if now.as_deref() == Some(label.as_str()) {
+                backend.rename_tab(&id, &label)?;
+                state.pinned.insert(id);
             }
         }
     }
+
+    // Unique names for the file, without touching herdr.
+    let mut seen = HashSet::new();
+    for (id, number, label) in tabs {
+        let raw = label.unwrap_or_else(|| number.to_string());
+        let name = match state.aliases.get(&id) {
+            Some((was, alias)) if was == &raw => alias.clone(),
+            _ => {
+                state.aliases.remove(&id);
+                raw.clone()
+            }
+        };
+        let name = if seen.contains(&name) {
+            let alias = (2..)
+                .map(|n| format!("{raw} ({n})"))
+                .find(|a| !seen.contains(a))
+                .expect("unbounded");
+            state
+                .aliases
+                .insert(id.clone(), (raw.clone(), alias.clone()));
+            alias
+        } else {
+            name
+        };
+        seen.insert(name.clone());
+        if let Some(t) = snap.tabs.iter_mut().find(|t| t.tab_id == id) {
+            t.label = Some(name);
+        }
+    }
     Ok(())
+}
+
+/// herdr's default tab name is its position.
+pub fn is_default_tab_name(label: &str) -> bool {
+    !label.is_empty() && label.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Show tabs under the names herdfile's files use for them.
+pub fn apply_aliases(snap: &mut Snapshot, ws: &str, state: &WsState) {
+    for tab in snap.tabs.iter_mut().filter(|t| t.workspace_id == ws) {
+        if let Some((was, alias)) = state.aliases.get(&tab.tab_id) {
+            if tab.label.as_deref() == Some(was.as_str()) {
+                tab.label = Some(alias.clone());
+            }
+        }
+    }
 }
 
 /// Label every unlabelled pane in a workspace, in screen order. The first
@@ -216,6 +285,7 @@ pub fn writeback(
     services: &Services,
 ) -> Result<WritebackReport> {
     let mut report = WritebackReport::default();
+    apply_aliases(snap, ws, state);
     // A tab renamed outside herdfile keeps its place in the file under the
     // new name, rather than being rebuilt under the old one.
     for tab in snap.tabs_of(ws) {
@@ -229,7 +299,7 @@ pub fn writeback(
             report.renamed.push(format!("{old} -> {new}"));
         }
     }
-    label_tabs(backend, snap, ws, &mut state.pinned)?;
+    label_tabs(backend, snap, ws, state)?;
     let file_names: HashSet<String> = file.leaf_names().into_iter().collect();
     let labelled = label_unlabelled(backend, snap, ws, &file_names)?;
 
@@ -720,5 +790,61 @@ mod tests {
         assert_eq!(label_prefix(&pane(None)), "shell");
         assert_eq!(label_prefix(&pane(Some("claude"))), "claude");
         assert_eq!(label_prefix(&pane(Some("Open Code"))), "open-code");
+    }
+
+    fn fixture() -> Snapshot {
+        serde_json::from_str(include_str!("../tests/fixtures/snapshot.json")).unwrap()
+    }
+
+    #[test]
+    fn titles_are_never_renamed_only_numbers_are_pinned() {
+        let mut snap = fixture();
+        // Two tabs an agent titled alike, and one still on herdr's default.
+        snap.tabs[0].label = Some("Fix login".into());
+        snap.tabs[1].label = Some("Fix login".into());
+        let mut third = snap.tabs[1].clone();
+        third.tab_id = "w1:t3".into();
+        third.number = 3;
+        third.label = Some("3".into());
+        snap.tabs.push(third);
+        let fake = crate::backend::fake::Fake::new(snap.clone());
+        let mut state = WsState::default();
+        label_tabs(&fake, &mut snap, "w1", &mut state).unwrap();
+        assert_eq!(
+            *fake.log.borrow(),
+            ["rename tab w1:t3 3"],
+            "only the numbered tab"
+        );
+        let names: Vec<_> = snap.tabs.iter().map(|t| t.label.clone().unwrap()).collect();
+        assert_eq!(names, ["Fix login", "Fix login (2)", "3"]);
+        // Second pass, as write-back runs it (aliases applied first):
+        // nothing renamed again, same names.
+        let mut again = fake.snapshot().unwrap();
+        apply_aliases(&mut again, "w1", &state);
+        label_tabs(&fake, &mut again, "w1", &mut state).unwrap();
+        assert_eq!(fake.log.borrow().len(), 1);
+        assert_eq!(again.tabs[1].label.as_deref(), Some("Fix login (2)"));
+    }
+
+    #[test]
+    fn a_retitled_tab_is_not_pinned_back() {
+        let mut snap = fixture();
+        snap.tabs[0].label = Some("1".into());
+        let mut fresh = snap.clone();
+        // The agent retitles it between our snapshot and the pin.
+        fresh.tabs[0].label = Some("Agent title".into());
+        let fake = crate::backend::fake::Fake::new(fresh);
+        let mut state = WsState::default();
+        label_tabs(&fake, &mut snap, "w1", &mut state).unwrap();
+        assert!(fake.log.borrow().is_empty(), "{:?}", fake.log.borrow());
+    }
+
+    #[test]
+    fn default_names_are_numbers() {
+        assert!(is_default_tab_name("1"));
+        assert!(is_default_tab_name("12"));
+        assert!(!is_default_tab_name("main"));
+        assert!(!is_default_tab_name("1-2"));
+        assert!(!is_default_tab_name(""));
     }
 }

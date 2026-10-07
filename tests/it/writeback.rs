@@ -359,3 +359,46 @@ fn hand_close_while_watcher_is_down_is_written_back() {
     t.settle();
     assert!(t.pane(&ws, "test").is_none(), "reopened after restart");
 }
+
+#[test]
+fn tab_titles_set_by_agents_are_never_renamed() {
+    let mut t = TestServer::start();
+    let ws = t.workspace("demo");
+    let first = t.tab_id(&ws, "1");
+    t.herdr(&["tab", "rename", &first, "Fix the login bug"]);
+    let r = t.herdr(&[
+        "tab",
+        "create",
+        "--workspace",
+        &ws,
+        "--label",
+        "Fix the login bug",
+        "--no-focus",
+    ]);
+    let second = r["result"]["tab"]["tab_id"].as_str().unwrap().to_string();
+    t.start_watcher();
+    t.eventually("recorded", || {
+        t.read_ws_file(&ws)
+            .contains("[tab.\"Fix the login bug (2)\"]")
+    });
+    t.settle();
+    // herdr still shows the agent's titles, unchanged.
+    assert_eq!(t.tab_names(&ws), ["Fix the login bug", "Fix the login bug"]);
+    let out = t.ok(None, &["apply", "-w", &ws]);
+    for change in ["opened", "closed", "moved", "resized"] {
+        assert!(
+            !out.contains(change),
+            "{out}\nlog: {}\ntabs: {:?}\nfile: {}",
+            t.log(),
+            t.tab_names(&ws),
+            t.read_ws_file(&ws)
+        );
+    }
+    // The agent retitles the second tab: the file follows, herdr is untouched.
+    t.herdr(&["tab", "rename", &second, "Review PR 312"]);
+    t.eventually("retitle written back", || {
+        t.read_ws_file(&ws).contains("[tab.\"Review PR 312\"]")
+    });
+    t.settle();
+    assert_eq!(t.tab_names(&ws), ["Fix the login bug", "Review PR 312"]);
+}

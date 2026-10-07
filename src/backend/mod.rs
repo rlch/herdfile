@@ -233,6 +233,88 @@ pub trait Backend {
     fn cli(&self, args: &[&str]) -> Result<(i32, String, String)>;
 }
 
+/// A backend for unit tests: serves a fixed snapshot, records every change,
+/// and refuses anything else.
+#[cfg(test)]
+pub mod fake {
+    use std::cell::RefCell;
+
+    use anyhow::{bail, Result};
+
+    use super::{Backend, Event, Placement, Snapshot, Spawn};
+
+    #[derive(Default)]
+    pub struct Fake {
+        pub snap: RefCell<Snapshot>,
+        pub log: RefCell<Vec<String>>,
+    }
+
+    impl Fake {
+        pub fn new(snap: Snapshot) -> Fake {
+            Fake {
+                snap: RefCell::new(snap),
+                log: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn note(&self, what: String) -> Result<()> {
+            self.log.borrow_mut().push(what);
+            Ok(())
+        }
+    }
+
+    impl Backend for Fake {
+        fn snapshot(&self) -> Result<Snapshot> {
+            Ok(self.snap.borrow().clone())
+        }
+        fn subscribe(&self, _: &mut dyn FnMut(Event) -> bool) -> Result<()> {
+            bail!("fake")
+        }
+        fn create_workspace(&self, _: &str, _: &str) -> Result<(String, String, String)> {
+            bail!("fake")
+        }
+        fn close_workspace(&self, _: &str) -> Result<()> {
+            bail!("fake")
+        }
+        fn create_tab(&self, _: &str, _: &str, _: &Spawn) -> Result<(String, String)> {
+            bail!("fake")
+        }
+        fn rename_tab(&self, tab: &str, label: &str) -> Result<()> {
+            self.note(format!("rename tab {tab} {label}"))
+        }
+        fn move_tab(&self, _: &str, _: usize) -> Result<()> {
+            bail!("fake")
+        }
+        fn split(&self, _: &Placement, _: &Spawn) -> Result<String> {
+            bail!("fake")
+        }
+        fn move_pane(&self, _: &str, _: &str, _: &Placement) -> Result<String> {
+            bail!("fake")
+        }
+        fn move_pane_new_tab(&self, _: &str, _: &str, _: &str) -> Result<(String, String)> {
+            bail!("fake")
+        }
+        fn swap(&self, _: &str, _: &str) -> Result<()> {
+            bail!("fake")
+        }
+        fn close_pane(&self, _: &str) -> Result<()> {
+            bail!("fake")
+        }
+        fn rename_pane(&self, pane: &str, label: Option<&str>) -> Result<()> {
+            self.note(format!("rename pane {pane} {}", label.unwrap_or("")))
+        }
+        fn run(&self, _: &str, _: &str) -> Result<()> {
+            bail!("fake")
+        }
+        fn set_ratio(&self, _: &str, _: &[bool], _: f64) -> Result<()> {
+            bail!("fake")
+        }
+        fn cli(&self, _: &[&str]) -> Result<(i32, String, String)> {
+            bail!("fake")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

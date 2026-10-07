@@ -503,7 +503,7 @@ impl Watcher {
             Ok(report) => {
                 if let Ok(snap) = self.backend.snapshot() {
                     if let Ok((file, services)) = load_checked(&path, &snap, ws) {
-                        problems = converged(&self.backend, ws, &file, &services)
+                        problems = converged(&self.backend, ws, &file, &services, state)
                             .unwrap_or_default()
                             .into_iter()
                             .filter(|p| {
@@ -596,7 +596,7 @@ pub fn apply_once(backend: &dyn Backend, ws: &str) -> Result<Reply> {
     )?;
     let snap = backend.snapshot()?;
     let (file, services) = load_checked(&path, &snap, ws)?;
-    let problems = converged(backend, ws, &file, &services)?;
+    let problems = converged(backend, ws, &file, &services, &state)?;
     Ok(Reply {
         ok: true,
         report: Some(report),

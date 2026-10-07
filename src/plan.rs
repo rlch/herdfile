@@ -226,60 +226,6 @@ pub fn plan(only: Option<String>) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// A backend that must never be reached: plan only reads its snapshot.
-    struct Unreachable;
-
-    impl Backend for Unreachable {
-        fn snapshot(&self) -> Result<Snapshot> {
-            bail!("unreachable")
-        }
-        fn subscribe(&self, _: &mut dyn FnMut(Event) -> bool) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn create_workspace(&self, _: &str, _: &str) -> Result<(String, String, String)> {
-            bail!("unreachable")
-        }
-        fn close_workspace(&self, _: &str) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn create_tab(&self, _: &str, _: &str, _: &Spawn) -> Result<(String, String)> {
-            bail!("unreachable")
-        }
-        fn rename_tab(&self, _: &str, _: &str) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn move_tab(&self, _: &str, _: usize) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn split(&self, _: &Placement, _: &Spawn) -> Result<String> {
-            bail!("unreachable")
-        }
-        fn move_pane(&self, _: &str, _: &str, _: &Placement) -> Result<String> {
-            bail!("unreachable")
-        }
-        fn move_pane_new_tab(&self, _: &str, _: &str, _: &str) -> Result<(String, String)> {
-            bail!("unreachable")
-        }
-        fn swap(&self, _: &str, _: &str) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn close_pane(&self, _: &str) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn rename_pane(&self, _: &str, _: Option<&str>) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn run(&self, _: &str, _: &str) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn set_ratio(&self, _: &str, _: &[bool], _: f64) -> Result<()> {
-            bail!("unreachable")
-        }
-        fn cli(&self, _: &[&str]) -> Result<(i32, String, String)> {
-            bail!("unreachable")
-        }
-    }
-
     fn fixture() -> Snapshot {
         serde_json::from_str(include_str!("../tests/fixtures/snapshot.json")).unwrap()
     }
@@ -288,15 +234,21 @@ mod tests {
     fn first_sight_plan_only_labels_and_records() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("w1.toml");
-        let lines =
-            plan_workspace(&Unreachable, &fixture(), "w1", &path, WsState::default()).unwrap();
+        let lines = plan_workspace(
+            &crate::backend::fake::Fake::default(),
+            &fixture(),
+            "w1",
+            &path,
+            WsState::default(),
+        )
+        .unwrap();
         assert!(
             lines.iter().any(|l| l == "label w1:p3 `shell-1`"),
             "{lines:?}"
         );
         assert!(
-            lines.iter().any(|l| l.starts_with("rename tab")),
-            "tabs are pinned: {lines:?}"
+            !lines.iter().any(|l| l.starts_with("rename tab")),
+            "titled tabs are left alone: {lines:?}"
         );
         assert!(
             lines
@@ -325,7 +277,14 @@ mod tests {
         // `dev` was seen in the file before; the file has since dropped it.
         let mut state = WsState::default();
         state.known.insert("dev".into());
-        let lines = plan_workspace(&Unreachable, &fixture(), "w1", &path, state).unwrap();
+        let lines = plan_workspace(
+            &crate::backend::fake::Fake::default(),
+            &fixture(),
+            "w1",
+            &path,
+            state,
+        )
+        .unwrap();
         assert!(lines.iter().any(|l| l == "close dev"), "{lines:?}");
         assert!(!lines.iter().any(|l| l.contains("close test")), "{lines:?}");
     }
