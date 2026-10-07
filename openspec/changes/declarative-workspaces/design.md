@@ -144,7 +144,7 @@ the only implementation in this change.
 tuios (v0.8.5, checked 2026-10-07) was considered as a replacement. It answers 77 of herdr's 102
 socket methods, but rejects `layout.*` and split ratios, focuses the target pane on `pane split`
 while a client is attached (ignoring `--no-focus`), and does not keep processes across a daemon
-restart. A hidden watcher on it would move the operator's focus. It is re-checked weekly. Switch
+restart. A hidden watcher on it would move the operator's focus. It is re-checked on request. Switch
 criteria: a split that does not take focus, settable split ratios, and processes that survive a
 daemon restart. Meeting them means writing a second backend, not changing the file format.
 
