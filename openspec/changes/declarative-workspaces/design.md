@@ -237,6 +237,8 @@ operator is looking at until they leave it. Opens and closes there still happen.
 
 ### The file of workspaces
 
+`dir` is a path (`~` allowed), as herdr's own `--cwd` takes; no repo-name lookup table.
+
 One file per herdr server, `$XDG_STATE_HOME/herdfile/workspaces.toml`, written only by herdfile
 commands, like the workspace files. Each key is a workspace name, which is also its herdr workspace
 label.
