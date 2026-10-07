@@ -135,6 +135,19 @@ applies a direct edit if one happens, but direct edits get no protection against
 Rejected: agents editing the text. An agent that reads the file, then saves after a write-back,
 silently reopens what the operator just closed.
 
+### All herdr calls go through one backend module
+
+herdfile talks to the multiplexer only through a small backend interface: read the tree, subscribe
+to events, create a tab, split with a size, move, rename, set a ratio, close. herdr's socket API is
+the only implementation in this change.
+
+tuios (v0.8.5, checked 2026-10-07) was considered as a replacement. It answers 77 of herdr's 102
+socket methods, but rejects `layout.*` and split ratios, focuses the target pane on `pane split`
+while a client is attached (ignoring `--no-focus`), and does not keep processes across a daemon
+restart. A hidden watcher on it would move the operator's focus. It is re-checked weekly. Switch
+criteria: a split that does not take focus, settable split ratios, and processes that survive a
+daemon restart. Meeting them means writing a second backend, not changing the file format.
+
 ### Workspace files live in a state folder
 
 One file per workspace at `$XDG_STATE_HOME/herdfile/<workspace-id>.toml` (default
