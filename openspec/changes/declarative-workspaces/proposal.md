@@ -19,8 +19,8 @@ herdr match that file, and anything left out of the file gets closed.
   agent, and creates everything through herdr's own commands.
 - New `adopt` command: writes a workspace file for an already-open workspace from what is on screen.
 - Write-back: when the operator closes a pane by hand, the watcher removes it from the file instead
-  of reopening it. When the operator opens a shell by hand, the watcher adds it to the file and
-  marks it as theirs, so it is never closed automatically.
+  of reopening it. When a pane is opened outside herdfile (by hand or by an agent calling herdr
+  directly), the watcher adds it to the file marked `unmanaged`, so it is never closed automatically.
 - Out of this change (planned as follow-ups): writing back hand moves and reorders, the file of
   workspaces above this one (worktree workspaces, a parent tree, messaging by name, a "needs you"
   list), and rewriting existing launcher skills on top of it.
