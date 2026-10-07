@@ -29,6 +29,9 @@ pub struct WsState {
     /// Labels waiting for their agent to go idle before closing.
     #[serde(skip)]
     pub pending: HashSet<String>,
+    /// Each tab's label after our last pass, by tab id, to notice renames.
+    #[serde(default)]
+    pub tabs: BTreeMap<String, String>,
 }
 
 impl WsState {
@@ -60,11 +63,17 @@ pub struct WritebackReport {
     pub recorded: Vec<String>,
     /// Tabs whose sizes were written back from a drag.
     pub resized: Vec<String>,
+    /// Tabs renamed outside herdfile, as `old -> new`.
+    #[serde(default)]
+    pub renamed: Vec<String>,
 }
 
 impl WritebackReport {
     pub fn is_empty(&self) -> bool {
-        self.dropped.is_empty() && self.recorded.is_empty() && self.resized.is_empty()
+        self.dropped.is_empty()
+            && self.recorded.is_empty()
+            && self.resized.is_empty()
+            && self.renamed.is_empty()
     }
 }
 
@@ -184,6 +193,19 @@ pub fn writeback(
     services: &Services,
 ) -> Result<WritebackReport> {
     let mut report = WritebackReport::default();
+    // A tab renamed outside herdfile keeps its place in the file under the
+    // new name, rather than being rebuilt under the old one.
+    for tab in snap.tabs_of(ws) {
+        let (Some(old), Some(new)) = (state.tabs.get(&tab.tab_id), &tab.label) else {
+            continue;
+        };
+        if old != new && file.tab(new).is_none() && file.rename_tab(old, new) {
+            if let Some(r) = state.ratios.remove(old) {
+                state.ratios.insert(new.clone(), r);
+            }
+            report.renamed.push(format!("{old} -> {new}"));
+        }
+    }
     label_tabs(backend, snap, ws)?;
     let file_names: HashSet<String> = file.leaf_names().into_iter().collect();
     let labelled = label_unlabelled(backend, snap, ws, &file_names)?;

@@ -203,3 +203,29 @@ fn status_change_does_not_rewrite_the_file() {
     settle();
     assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime);
 }
+
+#[test]
+fn tab_renamed_outside_is_written_back_not_rebuilt() {
+    let mut t = TestServer::start();
+    let ws = setup(&mut t, "\n[tab.main]\nrow = [\"agent\", \"test\"]\n");
+    let tab = t.pane(&ws, "agent").unwrap()["tab_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let terms: Vec<_> = ["agent", "test"]
+        .iter()
+        .map(|l| t.pane(&ws, l).unwrap()["pane_id"].clone())
+        .collect();
+    t.herdr(&["tab", "rename", &tab, "my title"]);
+    t.eventually("rename written back", || {
+        t.read_ws_file(&ws).contains("[tab.\"my title\"]")
+    });
+    settle();
+    assert_eq!(t.tab_names(&ws), ["my title"]);
+    let after: Vec<_> = ["agent", "test"]
+        .iter()
+        .map(|l| t.pane(&ws, l).unwrap()["pane_id"].clone())
+        .collect();
+    assert_eq!(after, terms, "panes were moved");
+    assert!(!t.log().contains("moved"), "{}", t.log());
+}

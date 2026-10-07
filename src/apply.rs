@@ -58,6 +58,7 @@ impl Report {
         );
         push("recorded as unmanaged", &self.writeback.recorded);
         push("sizes written back", &self.writeback.resized);
+        push("tabs renamed by hand", &self.writeback.renamed);
         push("marked for removal once idle", &self.pending);
         push("deferred until you leave the tab", &self.deferred);
         lines.extend(self.notes.iter().cloned());
@@ -573,6 +574,10 @@ impl Ctx<'_> {
                 }
             }
         }
+        self.state.tabs = snap
+            .tabs_of(self.ws)
+            .filter_map(|t| t.label.clone().map(|l| (t.tab_id.clone(), l)))
+            .collect();
         self.state.save(self.ws);
         self.state.ratios.clear();
         for tab in snap.tabs_of(self.ws) {

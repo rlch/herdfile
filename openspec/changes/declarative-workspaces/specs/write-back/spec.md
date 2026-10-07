@@ -37,6 +37,14 @@ any pane.
 - **WHEN** the watcher has just recorded a workspace and apply runs
 - **THEN** herdr is unchanged
 
+### Requirement: Tab renames are written back
+When a tab is renamed by something other than the watcher, the watcher SHALL rename that tab in the
+file, keeping its place and contents, and MUST NOT move panes to restore the old name.
+
+#### Scenario: An agent titles its tab
+- **WHEN** a tab listed as `[tab.1]` is renamed to `my title` outside herdfile
+- **THEN** the file lists `[tab."my title"]` with the same panes, and no pane moves
+
 ### Requirement: Dragged sizes are written back
 When the operator changes a split ratio by hand, the watcher SHALL write the new size into the file,
 rounded to the nearest 5%. If the rounded size equals the file's size, the file SHALL NOT change.

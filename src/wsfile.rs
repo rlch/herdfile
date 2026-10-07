@@ -242,6 +242,22 @@ impl WorkspaceFile {
         self.doc["tab"].as_table_mut().expect("tab is a table")
     }
 
+    /// Rename a tab in place, keeping its position and contents.
+    pub fn rename_tab(&mut self, old: &str, new: &str) -> bool {
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.name == old) else {
+            return false;
+        };
+        tab.name = new.to_string();
+        let table = self.tabs_table();
+        let mut rebuilt = Table::new();
+        rebuilt.set_implicit(true);
+        for (key, item) in table.iter() {
+            rebuilt.insert(if key == old { new } else { key }, item.clone());
+        }
+        *table = rebuilt;
+        true
+    }
+
     pub fn set_dir(&mut self, dir: &str) {
         self.dir = Some(dir.to_string());
         self.doc.insert("dir", toml_edit::value(dir));
@@ -460,6 +476,16 @@ mod tests {
         let mut f = file("[tab.main]\nrow = [\"a\", { column = [\"b\", \"c\"] }]\n").unwrap();
         f.remove("a").unwrap();
         assert_eq!(f.to_text(), "[tab.main]\ncolumn = [\"b\", \"c\"]\n");
+    }
+
+    #[test]
+    fn rename_tab_keeps_order_and_text() {
+        let mut f = file("[tab.a]\nrow = [\"x\"]  # note\n\n[tab.b]\nrow = [\"y\"]\n").unwrap();
+        assert!(f.rename_tab("a", "agent tab"));
+        assert_eq!(
+            f.to_text(),
+            "[tab.\"agent tab\"]\nrow = [\"x\"]  # note\n\n[tab.b]\nrow = [\"y\"]\n"
+        );
     }
 
     #[test]
