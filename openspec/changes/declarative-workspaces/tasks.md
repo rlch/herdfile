@@ -28,6 +28,7 @@
 
 - [x] 4.1 A workspace with no file is recorded by write-back from the snapshot (labels for unlabelled panes, `agent` for the first agent pane, sizes from screen); no adopt command
 - [x] 4.2 `[watch] workspaces` scope; first apply after first sight changes nothing
+- [x] 4.3 `herdfile plan`: a pass recorded against a backend that changes nothing
 
 ## 5. Write-back
 

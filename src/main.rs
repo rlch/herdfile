@@ -9,6 +9,7 @@ mod live;
 mod lock;
 mod needs;
 mod paths;
+mod plan;
 mod services;
 mod tell;
 mod time;
@@ -123,6 +124,11 @@ enum Cmd {
     Apply {
         #[command(flatten)]
         ws: WsArg,
+    },
+    /// Show what the watcher would do to each workspace in scope, changing nothing
+    Plan {
+        /// One workspace (id or label) instead of all in scope
+        workspace: Option<String>,
     },
     /// The file of workspaces: add or remove a workspace
     #[command(subcommand)]
@@ -276,6 +282,7 @@ fn run(cmd: Cmd) -> anyhow::Result<()> {
             },
         ),
         Cmd::Apply { ws } => commands::apply_now(&resolve_workspace(ws.workspace)?),
+        Cmd::Plan { workspace } => plan::plan(workspace),
         Cmd::Ws(WsCmd::Add {
             name,
             dir,

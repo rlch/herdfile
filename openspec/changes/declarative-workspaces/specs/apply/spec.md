@@ -127,3 +127,11 @@ NOT label, record, or change anything in a workspace outside that scope.
 - **WHEN** the config has `[watch] workspaces = ["hf-dogfood"]` and workspaces `hf-dogfood` and
   `land-prs` are open
 - **THEN** only `hf-dogfood` gets a file, and no pane of `land-prs` is renamed
+
+### Requirement: Plan shows a pass without making it
+`herdfile plan [<workspace>]` SHALL print, for each workspace in scope, what the next pass would do
+(labels, recorded panes, opens, closes, moves, resizes) and MUST NOT change herdr or any file.
+
+#### Scenario: Before widening the scope
+- **WHEN** the operator runs `herdfile plan` with `[watch] workspaces = ["*"]`
+- **THEN** each workspace is listed with what would change, and nothing changes

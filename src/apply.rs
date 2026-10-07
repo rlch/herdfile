@@ -17,7 +17,7 @@ use crate::wsfile::{Tab, WorkspaceFile};
 pub const STAGING_TAB: &str = "herdfile-staging";
 /// Ratios closer than this are left alone, so a drag that rounds to the
 /// file's size is not undone.
-const RATIO_TOLERANCE: f64 = 0.025;
+pub const RATIO_TOLERANCE: f64 = 0.025;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Report {
