@@ -10,7 +10,7 @@ agents can read and change the layout of your terminal workspaces without
 guessing, and leftovers get closed.
 
 Targets herdr 0.9.x. The design and its decisions are in
-`openspec/changes/declarative-workspaces/`.
+`openspec/specs/` (the change that built it: `openspec/changes/archive/2026-10-07-declarative-workspaces/`).
 
 ## Install
 

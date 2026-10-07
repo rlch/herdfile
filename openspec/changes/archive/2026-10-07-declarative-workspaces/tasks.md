@@ -56,4 +56,4 @@
 ## 8. Verify
 
 - [x] 8.1 Integration tests against a throwaway herdr server, one per spec scenario
-- [ ] 8.2 Dogfood: scope one workspace, then all; confirm nothing closes or moves, then edit one file by hand
+- [x] 8.2 Dogfood: scope one workspace, then all; confirm nothing closes or moves, then edit one file by hand
