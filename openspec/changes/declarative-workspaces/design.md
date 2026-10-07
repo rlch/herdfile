@@ -91,6 +91,15 @@ panes = ["dev"]
 Rejected: an indirection layer in the workspace file (`show = "background" | "beside"`). The file
 must read as the screen.
 
+### Workspace files live in a state folder
+
+One file per workspace at `$XDG_STATE_HOME/herdfile/<workspace-id>.toml` (default
+`~/.local/state/herdfile/`). herdr's workspace id survives a server restart. An agent finds its own
+file with `herdfile path`, which reads `$HERDR_WORKSPACE_ID`.
+
+Rejected: a git-ignored file in the workspace's folder. Two workspaces can share a folder (both on
+`~/dev`), and they would fight over one file.
+
 ### Identity is the pane label
 
 Every pane herdfile manages is labelled with its service name (`dev`, `test`) or `agent`. Labels
@@ -151,13 +160,11 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Where workspace files live: a state directory keyed by workspace, or a git-ignored file in the
-   workspace's directory.
-2. Watcher form: a herdr plugin (startup hook plus a detached process) or a standalone daemon in a
+1. Watcher form: a herdr plugin (startup hook plus a detached process) or a standalone daemon in a
    herdr pane.
-3. Language: Rust or Python.
-4. Who writes the workspace file: agents edit the text directly, or only through a command
+2. Language: Rust or Python.
+3. Who writes the workspace file: agents edit the text directly, or only through a command
    (`herdfile place dev`), given the watcher writes it too.
-5. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
-6. How often agents may change the file.
-7. Whether the file of workspaces ships in this change or the next.
+4. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
+5. How often agents may change the file.
+6. Whether the file of workspaces ships in this change or the next.

@@ -14,6 +14,19 @@ service from the repo's services file, `agent`, or a pane marked `mine` or `unma
 - **WHEN** a pane name is neither a service, `agent`, nor a marked pane
 - **THEN** the file is rejected with an error naming the pane, and herdr is not changed
 
+### Requirement: Workspace files live in the state folder
+Each workspace file SHALL be stored at `$XDG_STATE_HOME/herdfile/<workspace-id>.toml`, defaulting to
+`~/.local/state/herdfile/<workspace-id>.toml`. `herdfile path` SHALL print the file for
+`$HERDR_WORKSPACE_ID`, or for a workspace given as an argument.
+
+#### Scenario: Agent finds its file
+- **WHEN** an agent in workspace `w3` runs `herdfile path`
+- **THEN** it prints `~/.local/state/herdfile/w3.toml` (expanded)
+
+#### Scenario: Two workspaces on one folder
+- **WHEN** workspaces `w3` and `w7` both have cwd `~/dev`
+- **THEN** each has its own file
+
 ### Requirement: Names are unique within a workspace
 A pane name MUST appear at most once in a workspace file.
 
