@@ -2,11 +2,13 @@
 
 ### Requirement: One file per workspace lists its tabs and panes
 Each managed workspace SHALL have one workspace file, not committed to git. Each `[tab.<label>]`
-table is one tab, in file order. Its `panes` array lists pane names left to right. A name is a
-service from the repo's services file, `agent`, or a pane marked `mine` or `unmanaged`.
+table is one tab, in file order, with exactly one of `row` (left to right) or `column` (top to
+bottom). Each entry SHALL be a pane name, `{ pane = <name>, size = <percent> }`, or a nested
+`{ row = [...] }` or `{ column = [...] }` with an optional `size`. A name is a service from the
+repo's services file, `agent`, or a pane marked `mine` or `unmanaged`.
 
 #### Scenario: Two tabs
-- **WHEN** the file has `[tab.main] panes = ["agent", "test"]` and `[tab.services] panes = ["dev"]`
+- **WHEN** the file has `[tab.main] row = ["agent", "test"]` and `[tab.services] row = ["dev"]`
 - **THEN** the desired workspace is a tab `main` with `agent` on the left and `test` on the right,
   then a tab `services` with `dev`
 
@@ -28,7 +30,8 @@ Each workspace file SHALL be stored at `$XDG_STATE_HOME/herdfile/<workspace-id>.
 - **THEN** each has its own file
 
 ### Requirement: Agents change the file through commands
-herdfile SHALL provide `place <name> [--tab <tab>] [--after <name>]`, `remove <name>`, and `show`.
+herdfile SHALL provide `place <name> [--tab <tab>] [--right-of|--left-of|--above|--below <name>]
+[--size <percent>]`, `remove <name>`, `set <tab> <tree>`, and `show`.
 Each command SHALL take the workspace lock, edit the current file, and exit non-zero with the reason
 if the result would be invalid. `place` on a name already in the file SHALL move it.
 
@@ -44,6 +47,14 @@ if the result would be invalid. `place` on a name already in the file SHALL move
 - **WHEN** the operator closes `dev` by hand and, a moment later, an agent runs
   `herdfile place logs --after agent`
 - **THEN** the file has `logs` and does not have `dev`
+
+#### Scenario: Nested layout with sizes
+- **WHEN** the file has `[tab.main] row = ["agent", { column = ["test", "dev"], size = 40 }]`
+- **THEN** the desired tab is `agent` on the left at 60%, and `test` above `dev` on the right at 40%
+
+#### Scenario: Sizes over 100
+- **WHEN** the sizes in one row or column add up to more than 100
+- **THEN** the file is rejected with an error naming the tab
 
 ### Requirement: Names are unique within a workspace
 A pane name MUST appear at most once in a workspace file.
@@ -62,7 +73,7 @@ A pane entry SHALL be managed by default. A pane MAY be marked `mine` (opened by
 
 ### Requirement: Live state is never stored
 The workspace file MUST NOT contain pane ids, terminal ids, agent status, running or exited state,
-sizes, or focus.
+or focus.
 
 #### Scenario: Write-back after a status change
 - **WHEN** an agent's status changes from `working` to `idle`

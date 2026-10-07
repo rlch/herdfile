@@ -42,7 +42,6 @@ herdr facts this design relies on (checked against 0.8.0 source and the 0.9.3 bi
 - Writing back hand moves and reorders. Closes and hand-opened shells only.
 - The file of workspaces: worktree workspaces, the parent tree, messaging by name, the "needs you"
   list. Planned as a second change.
-- Nested splits and sizes. A tab is a left-to-right row.
 - Running services outside herdr (process-compose or similar).
 - Port allocation between workspaces.
 
@@ -56,7 +55,7 @@ file is edited all day by agents, so it has to be the target. Two rules stop the
 from fighting:
 
 1. Anything only herdr can know is never written to the file: running or exited, agent status, pane
-   ids, sizes, focus. Those are read live.
+   ids, focus. Those are read live.
 2. Hand changes are folded into the file (write-back) before the next apply. The file therefore
    never asks for something the operator just undid.
 
@@ -82,10 +81,10 @@ cmd = "pnpm test --watch"
 ```toml
 # workspace file
 [tab.main]
-panes = ["agent", "test"]   # left to right
+row = ["agent", "test"]   # left to right
 
 [tab.services]
-panes = ["dev"]
+row = ["dev"]
 ```
 
 Rejected: an indirection layer in the workspace file (`show = "background" | "beside"`). The file
@@ -144,6 +143,43 @@ file with `herdfile path`, which reads `$HERDR_WORKSPACE_ID`.
 
 Rejected: a git-ignored file in the workspace's folder. Two workspaces can share a folder (both on
 `~/dev`), and they would fight over one file.
+
+### A tab is a tree of rows and columns, with optional sizes
+
+Any layout herdr can show can be written. A tab has one top-level `row` (left to right) or
+`column` (top to bottom). Each entry is a pane name, or an inline table that is a pane with a size
+or a nested row or column:
+
+```toml
+[tab.main]
+row = ["agent", { column = ["test", { pane = "dev", size = 30 }], size = 40 }]
+```
+```
+┌──────────────┬──────────┐
+│              │ test     │
+│ agent (60%)  │          │
+│              ├──────────┤
+│              │ dev 30%  │
+└──────────────┴──────────┘
+```
+
+`size` is a percentage of the parent. Entries without one share what is left equally. herdr splits
+are binary, so a row of n entries becomes a chain of n-1 splits with ratios that produce the
+requested sizes. Apply uses `pane split`, `pane move`, and `layout.set_split_ratio`, never
+`layout.apply`, which would kill the tab's processes.
+
+Rejected: a flat left-to-right list. It cannot express the common agent-left, two-stacked-right
+layout, and the operator wants full control over shape and size.
+
+### Commands return when herdr matches
+
+Agents care about correctness and latency. A command (`place`, `remove`, `set`) takes the lock,
+edits the file, and asks the watcher over a local socket to apply now. It returns when the snapshot
+matches, printing what changed, or fails with the reason. There is no file-watch delay, and the
+caller never acts on a layout that has not happened yet. `--no-wait` returns after the edit.
+
+For a whole tab at once, `herdfile set <tab> '<row or column>'` replaces one tab's tree in one call,
+so a re-layout is one round trip, not one command per pane.
 
 ### Identity is the pane label
 
@@ -207,6 +243,7 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
+1. What happens to sizes when the operator drags a divider: write the new size back, or restore
+   the file's size on the next apply.
 2. How often agents may change the file.
 3. Whether the file of workspaces ships in this change or the next.

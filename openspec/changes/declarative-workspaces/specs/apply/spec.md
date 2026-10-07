@@ -5,7 +5,7 @@ When a workspace file changes, the watcher SHALL open, close, and move panes so 
 workspace's labelled panes match the file. Panes are matched by label.
 
 #### Scenario: Replace a pane
-- **WHEN** `[tab.main] panes = ["agent", "test"]` is changed to `["agent", "logs"]`
+- **WHEN** `[tab.main] row = ["agent", "test"]` is changed to `row = ["agent", "logs"]`
 - **THEN** the pane labelled `test` is closed and a pane labelled `logs` running the `logs` service
   is opened to the right of `agent`
 
@@ -16,6 +16,32 @@ workspace's labelled panes match the file. Panes are matched by label.
 #### Scenario: Missing pane is opened
 - **WHEN** the file lists `dev` and no pane labelled `dev` exists
 - **THEN** a pane labelled `dev` is created in the service's cwd and its `cmd` is run
+
+### Requirement: Shape and size follow the file
+Apply SHALL arrange each tab's panes into the rows and columns the file gives, and set each split's
+ratio so that entries with a `size` get that percentage of their parent and the rest share equally.
+Apply MUST NOT use `layout.apply` on a tab that has running panes.
+
+#### Scenario: Stack two panes on the right
+- **WHEN** `row = ["agent", "test"]` is changed to `row = ["agent", { column = ["test", "dev"] }]`
+- **THEN** `dev` opens below `test`, and `agent` and `test` keep running
+
+#### Scenario: Resize
+- **WHEN** `"agent"` is changed to `{ pane = "agent", size = 70 }` in a two-entry row
+- **THEN** the split ratio becomes 0.7 and no pane is restarted
+
+### Requirement: Commands return when herdr matches
+`place`, `remove`, and `set` SHALL ask the watcher to apply immediately and SHALL return only when
+the snapshot matches the file, printing what changed. If apply cannot finish, the command SHALL exit
+non-zero with the reason. `--no-wait` SHALL return after the file is written.
+
+#### Scenario: Place and wait
+- **WHEN** an agent runs `herdfile place dev --tab services`
+- **THEN** the command returns after a pane labelled `dev` exists in tab `services`
+
+#### Scenario: Busy agent blocks a removal
+- **WHEN** an agent runs `herdfile remove agent` while that agent is `working`
+- **THEN** the command returns saying the pane is marked for removal once idle
 
 ### Requirement: Not in the file means closed
 A managed pane whose label is not in the file SHALL be closed.

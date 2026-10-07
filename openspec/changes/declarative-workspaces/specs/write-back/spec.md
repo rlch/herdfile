@@ -40,4 +40,4 @@ preserved.
 
 #### Scenario: Hand close changes one line
 - **WHEN** the operator closes `test` in tab `main`
-- **THEN** only the `panes` line of `[tab.main]` changes
+- **THEN** only the `row` line of `[tab.main]` changes

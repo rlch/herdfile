@@ -11,11 +11,13 @@
 - [ ] 2.1 Parse and validate `.herdr/services.toml` (required `cmd`, reserved `agent`, unknown keys rejected)
 - [ ] 2.2 Parse and validate the workspace file (unique names, known names, ownership marks)
 - [ ] 2.3 State-folder location and `herdfile path`
-- [ ] 2.4 `herdfile place`, `remove`, `show` under the workspace lock
+- [ ] 2.4 Layout tree: parse rows, columns, sizes; validate sizes per parent
+- [ ] 2.5 `herdfile place`, `remove`, `set`, `show` under the workspace lock; local socket to ask the watcher to apply now; wait for the snapshot to match
 
 ## 3. Apply
 
 - [ ] 3.1 Diff desired (file) against live (snapshot) by label: open, close, move
+- [ ] 3.7 Map the n-ary tree to herdr's binary splits and ratios; reshape with `pane split`, `pane move`, `layout.set_split_ratio`
 - [ ] 3.2 Open a service pane: split in place, set label, run `cmd` in `cwd` with `env`
 - [ ] 3.3 Busy-agent rule: mark for removal, close on next `idle`/`done`, cancel if re-added
 - [ ] 3.4 Defer moves and reorders in the tab the operator is viewing

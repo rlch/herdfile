@@ -11,8 +11,9 @@ herdr match that file, and anything left out of the file gets closed.
 - New repo file `.herdr/services.toml`: named commands a repo can run (`[dev]`, `[test]`), each
   with a command, an optional working directory, and optional readiness text. It says nothing about
   tabs or panes.
-- New per-workspace file (not in git): the workspace's tabs, and the panes in each tab, left to
-  right, named by service (or `agent` for the workspace's own agent).
+- New per-workspace file (not in git): the workspace's tabs, and in each tab a tree of rows and
+  columns of panes with optional sizes, named by service (or `agent` for the workspace's own agent).
+  Agents change it through `herdfile` commands that return once herdr matches.
 - New watcher: when the workspace file changes, it opens, closes, and moves panes so that herdr
   matches the file. It finds panes by label, never steals focus, never closes a working or blocked
   agent, and creates everything through herdr's own commands.
