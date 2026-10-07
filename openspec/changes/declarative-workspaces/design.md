@@ -339,6 +339,27 @@ unmerged commits, and `herdfile ask "<question>"` from any agent. An entry is cl
 clears (the agent leaves `blocked`, the branch merges) or with `herdfile needs done <id>`. The file
 format is documented so other tools (a PR landing tool) can add entries.
 
+### Fit with herdr
+
+Checked against herdr 0.9.3 (`herdr --skill`, CLI help) so herdfile adds to herdr and never works
+around it:
+
+- Names: workspace labels, pane labels, and herdr agent names are herdfile's identities. It mints no
+  ids of its own.
+- Commands: every change is a herdr CLI or socket call. `layout.apply` is never used on live tabs
+  (it kills processes). `worktree create`, never `git worktree add`.
+- Closing: herdr's guidance is "do not close what you did not create". herdfile closes only managed
+  panes and workspaces, never `unmanaged` ones. It never passes `workspace close --group`; a primary
+  workspace with linked worktrees stays open and goes on "needs you".
+- Blocked agents: never typed into, matching herdr's `agent_blocked` refusal.
+- Messaging: `tell` is `herdr agent prompt` plus a sender prefix and parent lookup.
+- Placement guidance: herdr's bundled agent skill tells agents to open a sibling pane directly. With
+  herdfile installed, agents should use `herdfile place` instead. Panes opened directly still work
+  and are recorded as `unmanaged`, so nothing breaks if an agent follows herdr's skill.
+- The watcher: herdr's `[[startup]]` hooks are one-shot, not supervised. Detaching a long-lived
+  process from one is a workaround, the same one agent-tags uses. If herdr adds supervised plugin
+  processes, herdfile moves to them.
+
 ## Risks / Trade-offs
 
 - [Event-matching misreads a hand change as the watcher's own, or the reverse] → match on

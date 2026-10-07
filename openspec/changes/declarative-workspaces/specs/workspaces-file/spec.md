@@ -41,6 +41,10 @@ idle or done. A worktree SHALL be removed with `herdr worktree remove` only if i
 into its base. With unmerged commits, nothing SHALL be removed and an item SHALL be added to the
 "needs you" list. The folder of a non-worktree workspace MUST NOT be deleted.
 
+#### Scenario: Primary workspace with linked worktrees
+- **WHEN** an entry without `branch` is removed while herdr links worktree workspaces to it
+- **THEN** herdfile does not pass `--group`, the workspace stays open, and "needs you" says why
+
 #### Scenario: Merged branch
 - **WHEN** `review-pr-312` is removed, its agent is idle, and its branch is merged
 - **THEN** the worktree is removed and the workspace closes
