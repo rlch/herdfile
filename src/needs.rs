@@ -1,12 +1,16 @@
 //! The "needs you" list: one JSON object per line in
 //! `$XDG_STATE_HOME/herdfile/needs.jsonl`. Other tools may append lines.
 
+use std::collections::HashSet;
+
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::backend::Snapshot;
 use crate::lock::FileLock;
 use crate::paths;
 
+pub const BLOCKED: &str = "blocked";
 pub const HELD_REMOVAL: &str = "held-removal";
 pub const ASK: &str = "ask";
 
@@ -102,6 +106,65 @@ pub fn done(id: &str) -> Result<()> {
         bail!("no entry `{id}` in {}", paths::needs_file().display());
     }
     Ok(())
+}
+
+/// Keep `blocked` entries in step with herdr: add one per blocked agent,
+/// clear it when the agent leaves blocked.
+pub fn track(snap: &Snapshot) {
+    let blocked: Vec<_> = snap
+        .panes
+        .iter()
+        .filter(|p| p.agent_status.as_deref() == Some("blocked"))
+        .collect();
+    let blocked_ids: HashSet<&str> = blocked.iter().map(|p| p.pane_id.as_str()).collect();
+    let current = read();
+    let stale = current.iter().any(|n| {
+        n.source == BLOCKED
+            && !n
+                .pane
+                .as_deref()
+                .map(|p| blocked_ids.contains(p))
+                .unwrap_or(false)
+    });
+    let missing: Vec<_> = blocked
+        .iter()
+        .filter(|p| {
+            !current
+                .iter()
+                .any(|n| n.source == BLOCKED && n.pane.as_deref() == Some(&p.pane_id))
+        })
+        .collect();
+    if !stale && missing.is_empty() {
+        return;
+    }
+    let result = update(|needs| {
+        needs.retain(|n| {
+            n.source != BLOCKED
+                || n.pane
+                    .as_deref()
+                    .map(|p| blocked_ids.contains(p))
+                    .unwrap_or(false)
+        });
+        for p in &missing {
+            let ws = snap
+                .workspace(&p.workspace_id)
+                .and_then(|w| w.label.clone())
+                .unwrap_or_else(|| p.workspace_id.clone());
+            let who = p.label.clone().unwrap_or_else(|| p.pane_id.clone());
+            let id = new_id(needs);
+            needs.push(Need {
+                id,
+                workspace: ws,
+                reason: format!("`{who}` is waiting for an answer"),
+                source: BLOCKED.to_string(),
+                time: rfc3339(now_secs()),
+                pane: Some(p.pane_id.clone()),
+            });
+        }
+    });
+    if let Err(e) = result {
+        crate::watch::log(&format!("needs: {e:#}"));
+    }
 }
 
 pub fn print() {

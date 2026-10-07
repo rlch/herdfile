@@ -1,4 +1,4 @@
-//! The file of workspaces and the "needs you" list.
+//! The file of workspaces, tell, and the "needs you" list.
 
 mod common;
 
@@ -272,6 +272,97 @@ fn adopt_all_records_everything_and_closes_nothing() {
         t.ok(None, &["apply", "-w", id]);
     }
     assert_eq!(t.snapshot()["panes"].as_array().unwrap().len(), panes);
+}
+
+#[test]
+fn tell_parent_and_wait_for_reply() {
+    let mut t = TestServer::start();
+    decoy(&t);
+    t.start_watcher();
+    let r = t.repo();
+    let r = r.to_str().unwrap();
+    t.ok(
+        None,
+        &["ws", "add", "land-prs", "--dir", r, "--model", "opus"],
+    );
+    t.ok(
+        None,
+        &[
+            "ws",
+            "add",
+            "review-pr-312",
+            "--dir",
+            r,
+            "--parent",
+            "land-prs",
+            "--model",
+            "opus",
+        ],
+    );
+    let child = t.ws_id("review-pr-312").unwrap();
+    let parent = t.ws_id("land-prs").unwrap();
+
+    t.ok(
+        Some(&child),
+        &["tell", "parent", "approved, ready to merge"],
+    );
+    let pane = t.pane_id(&parent, "agent");
+    t.eventually("parent got it", || {
+        t.read_pane(&pane)
+            .contains("From review-pr-312: approved, ready to merge")
+    });
+
+    let out = t.ok(
+        Some(&parent),
+        &[
+            "tell",
+            "review-pr-312",
+            "--wait",
+            "--timeout",
+            "20000",
+            "is it approved?",
+        ],
+    );
+    assert!(
+        out.contains("reply to: From land-prs: is it approved?"),
+        "{out}"
+    );
+
+    // Unknown names list the known ones.
+    let out = t.herdfile(Some(&parent), &["tell", "nobody", "hi"]);
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("land-prs") && err.contains("review-pr-312"),
+        "{err}"
+    );
+}
+
+#[test]
+fn blocked_agent_refuses_and_lands_on_needs() {
+    let mut t = TestServer::start();
+    decoy(&t);
+    t.start_watcher();
+    let r = t.repo();
+    t.ok(
+        None,
+        &["ws", "add", "land-prs", "--dir", r.to_str().unwrap()],
+    );
+    let ws = t.ws_id("land-prs").unwrap();
+    let pane = t.pane_id(&ws, "agent");
+    t.report_agent(&pane, "blocked");
+    t.herdr(&["agent", "rename", &pane, "land-prs"]);
+    let out = t.herdfile(None, &["tell", "land-prs", "hello"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("agent_blocked"));
+    assert!(!t.read_pane(&pane).contains("hello"));
+    t.eventually("blocked agent on needs", || {
+        t.ok(None, &["needs"]).contains("land-prs")
+    });
+    t.report_agent(&pane, "idle");
+    t.eventually("cleared once answered", || {
+        t.ok(None, &["needs"]).contains("nothing needs you")
+    });
 }
 
 #[test]

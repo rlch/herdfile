@@ -375,7 +375,7 @@ impl Watcher {
     }
 
     /// Agent status is not an event herdr broadcasts, so poll it: close
-    /// panes waiting for idle, finish removals.
+    /// panes waiting for idle, track blocked agents, finish removals.
     fn poll_status(&mut self) {
         let Ok(snap) = self.backend.snapshot() else {
             return;
@@ -407,6 +407,7 @@ impl Watcher {
                 self.mark(&ws, Duration::ZERO, true);
             }
         }
+        crate::needs::track(&snap);
         self.fleet_tick();
     }
 

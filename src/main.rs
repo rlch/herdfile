@@ -11,6 +11,7 @@ mod lock;
 mod needs;
 mod paths;
 mod services;
+mod tell;
 mod time;
 mod watch;
 mod workspaces;
@@ -141,6 +142,21 @@ enum Cmd {
     Ws(WsCmd),
     /// Print the workspaces as a tree, with live agent status
     Tree,
+    /// Prompt another workspace's agent, prefixed with your name
+    Tell {
+        /// Workspace name, or `parent`
+        target: String,
+        text: String,
+        /// Wait for the agent to settle, then print its reply
+        #[arg(long)]
+        wait: bool,
+        /// Passed to `herdr agent prompt --until`
+        #[arg(long)]
+        until: Vec<String>,
+        /// Milliseconds, passed to `herdr agent prompt --timeout`
+        #[arg(long)]
+        timeout: Option<String>,
+    },
     /// Things waiting on the operator
     Needs {
         #[command(subcommand)]
@@ -300,6 +316,25 @@ fn run(cmd: Cmd) -> anyhow::Result<()> {
         }),
         Cmd::Ws(WsCmd::Remove { name }) => workspaces::remove(&name),
         Cmd::Tree => workspaces::tree(),
+        Cmd::Tell {
+            target,
+            text,
+            wait,
+            until,
+            timeout,
+        } => {
+            let code = tell::tell(tell::TellArgs {
+                target,
+                text,
+                wait,
+                until,
+                timeout,
+            })?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            Ok(())
+        }
         Cmd::Needs { cmd: None } => {
             needs::print();
             Ok(())
