@@ -18,6 +18,18 @@ and an outside agent's split look the same. The operator MAY change the mark to 
 - **WHEN** the operator splits a new shell in tab `main`
 - **THEN** the file lists it in `main` marked `unmanaged`, and apply never closes it
 
+### Requirement: Dragged sizes are written back
+When the operator changes a split ratio by hand, the watcher SHALL write the new size into the file,
+rounded to the nearest 5%. If the rounded size equals the file's size, the file SHALL NOT change.
+
+#### Scenario: Drag a divider
+- **WHEN** `agent` has `size = 60` and the operator drags it to 73%
+- **THEN** the file has `size = 75` and apply does not resize the pane again
+
+#### Scenario: Small drag
+- **WHEN** `agent` has `size = 60` and the operator drags it to 61%
+- **THEN** the file is unchanged
+
 ### Requirement: The watcher ignores its own changes
 Events caused by the watcher's own operations MUST NOT be written back.
 

@@ -181,6 +181,10 @@ are binary, so a row of n entries becomes a chain of n-1 splits with ratios that
 requested sizes. Apply uses `pane split`, `pane move`, and `layout.set_split_ratio`, never
 `layout.apply`, which would kill the tab's processes.
 
+When the operator drags a divider, the new size is written back, rounded to 5% so small drags do
+not rewrite the file. A drag that rounds to the current value changes nothing. herdr reports
+resizes as `layout_updated`; write-back reads the new ratios from the snapshot.
+
 Rejected: a flat left-to-right list. It cannot express the common agent-left, two-stacked-right
 layout, and the operator wants full control over shape and size.
 
@@ -256,7 +260,5 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. What happens to sizes when the operator drags a divider: write the new size back, or restore
-   the file's size on the next apply.
-2. How often agents may change the file.
-3. Whether the file of workspaces ships in this change or the next.
+1. How often agents may change the file.
+2. Whether the file of workspaces ships in this change or the next.

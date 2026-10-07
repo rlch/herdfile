@@ -34,6 +34,7 @@
 - [ ] 5.1 Record the watcher's own operations and ignore matching events
 - [ ] 5.2 Hand close removes the pane from the file
 - [ ] 5.3 Hand-opened pane is added as `unmanaged` in its tab and position
+- [ ] 5.5 Dragged sizes: on `layout_updated`, read ratios, round to 5%, write back if changed
 - [ ] 5.4 Collision rule: hand change wins, dropped edit is reported
 
 ## 6. Verify
