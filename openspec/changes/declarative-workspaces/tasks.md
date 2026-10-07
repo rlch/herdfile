@@ -46,7 +46,8 @@
 
 ## 7. Messaging and needs you
 
-- [ ] 7.1 `herdfile tell <name|parent>` via `herdr agent prompt`, sender prefix, queue for blocked agents
+- [ ] 7.1 Name each workspace agent after its workspace (`agent start <name>` / `agent rename`); validate names against herdr's pattern
+- [ ] 7.4 `herdfile tell <name|parent>`: sender prefix, pass `--wait/--until/--timeout` to `herdr agent prompt`, print reply via `agent read`, pass errors through
 - [ ] 7.2 `needs.jsonl` format (documented), `herdfile needs`, `needs done`, `ask`
 - [ ] 7.3 Add and clear entries on blocked, held removal, merge
 

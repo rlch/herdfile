@@ -313,10 +313,23 @@ agents that way, and it skips the readiness wait.
 
 ### Messaging by name
 
-`herdfile tell <name> "<text>"` sends the text to the named workspace's agent with
-`herdr agent prompt`, prefixed with the sender's name (`From land-prs: ...`). `tell parent` resolves
-through the tree. herdr refuses to prompt a blocked agent; herdfile then queues the message and
-delivers it when the agent leaves `blocked`, and puts the blocked agent on the "needs you" list.
+herdr already has agent names: unique among live agents, `[a-z][a-z0-9_-]{0,31}`, cleared when the
+agent exits. herdfile reuses them instead of adding its own. A workspace's name must match that
+pattern, and its agent is given the same herdr agent name whenever herdfile starts it. So
+`herdr agent prompt review-pr-312 "..."` works with no herdfile involved.
+
+`herdfile tell` is a thin wrapper over `herdr agent prompt` that adds only what herdr lacks:
+
+- `parent` resolves through the tree.
+- The text is prefixed with the sender's name (`From review-pr-312: ...`).
+- `--wait`, `--until` and `--timeout` pass straight through. With `--wait`, the reply is printed
+  afterwards with `herdr agent read --source recent-unwrapped`, since herdr does not return it.
+- herdr's errors pass through unchanged. A blocked target fails with `agent_blocked`, as herdr
+  intends (a human answers approvals); herdfile does not queue around it. The blocked agent is
+  already on the "needs you" list.
+
+Rejected: queueing messages for blocked agents. It is a second delivery path that works around
+herdr's deliberate refusal.
 
 ### The "needs you" list
 
@@ -343,8 +356,8 @@ format is documented so other tools (a PR landing tool) can add entries.
 - [Two workspaces start the same dev port] → out of scope. The second one fails loudly in its pane.
 - [A wrong `ws remove` destroys work] → a worktree is only removed when its agent is idle and its
   branch is merged. Unmerged commits always stop removal and go to the operator.
-- [Messages arrive while an agent is mid-task] → agent CLIs queue typed input while working; blocked
-  agents get the message queued by herdfile instead.
+- [Messages arrive while an agent is mid-task] → agent CLIs queue typed input while working. Blocked
+  agents refuse messages, as herdr does.
 
 ## Migration Plan
 
