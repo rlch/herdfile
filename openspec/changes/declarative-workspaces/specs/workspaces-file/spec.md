@@ -13,8 +13,18 @@ workspace label. Each entry SHALL have `dir` and MAY have `branch`, `purpose`, `
 ### Requirement: Adding an entry opens the workspace
 `herdfile ws add` SHALL create the workspace through herdr with `--no-focus`. With `branch`, it
 SHALL use `herdr worktree create`. It SHALL write the workspace's own workspace file with
-`[tab.main] row = ["agent"]` and, if `agent` is given, start the agent with the brief using the
-configured launch command.
+`[tab.main] row = ["agent"]` and, if `agent` is given, start the agent and then send the brief as
+its first prompt once herdr reports it ready.
+
+#### Scenario: Default start
+- **WHEN** no `command` is configured and `kind = "claude"`, `args = ["--model", "{model}"]`
+- **THEN** herdfile runs `herdr agent start review-pr-312 --kind claude --pane <new pane> -- --model opus`,
+  then `herdr agent prompt review-pr-312 "Read briefs/review-312.md and follow it."`
+
+#### Scenario: Wrapper command
+- **WHEN** `command = "cl --{model}"` is configured
+- **THEN** herdfile types `cl --opus` at the new pane's shell prompt, waits for herdr to detect the
+  agent, names it `review-pr-312`, and sends the brief as its first prompt
 
 #### Scenario: Worktree workspace with an agent
 - **WHEN** an agent runs `herdfile ws add review-pr-312 --dir ~/dev/schools-ts --branch review-pr-312 --brief briefs/review-312.md --model opus`

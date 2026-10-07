@@ -282,6 +282,35 @@ The same hand-change rule applies one level up. A workspace the operator closes 
 from the file. A workspace created outside herdfile is added as `unmanaged` and never removed
 automatically. `herdfile adopt --all` writes entries for every open workspace as `unmanaged`.
 
+### Starting an agent: kind, args, then the brief as a prompt
+
+This follows herdr and tuios. herdr's `agent start <name> --kind claude --pane <id> -- <args>` runs
+a known agent CLI in an existing pane and returns when it is ready. tuios's `start-agent claude
+--name x --prompt '...'` does the same and types the first prompt after. Neither puts the task on
+the command line. So herdfile:
+
+1. creates the pane (`--no-focus`),
+2. starts the agent: by default `herdr agent start <workspace> --kind <kind> -- <args>`,
+3. when it is ready, sends the brief with `herdr agent prompt <workspace> "Read <brief> and follow it."`.
+
+```toml
+# ~/.config/herdfile/config.toml
+[agent]
+kind = "claude"                 # herdr's --kind
+args = ["--model", "{model}"]   # {model} from --model, per argument, no shell
+
+# Optional: start through a wrapper instead. It is typed at the pane's shell
+# prompt, so shell functions work; herdfile then waits for herdr to detect the
+# agent and names it with `herdr agent rename`.
+command = "cl --{model}"
+```
+
+The operator's dotfiles set `command = "cl --{model}"`, because `cl` picks the account and maps
+`--opus` to the 1M model. `agent start --kind claude` would run plain `claude` and skip that.
+
+Rejected: a full argv with the brief baked into the first argument. Neither herdr nor tuios starts
+agents that way, and it skips the readiness wait.
+
 ### Messaging by name
 
 `herdfile tell <name> "<text>"` sends the text to the named workspace's agent with
@@ -325,6 +354,5 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Agent launch command: how it is configured, and how the brief and model are passed.
-2. `tell`: fire and forget, or wait for the reply.
-3. How `dir` is written: a path, or a short repo name resolved from a configured list.
+1. `tell`: fire and forget, or wait for the reply.
+2. How `dir` is written: a path, or a short repo name resolved from a configured list.

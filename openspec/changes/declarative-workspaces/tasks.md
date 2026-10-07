@@ -40,7 +40,7 @@
 ## 6. Workspaces file
 
 - [ ] 6.1 Parse and validate `workspaces.toml` (unique names, known parents, no cycles)
-- [ ] 6.2 `herdfile ws add`: `herdr worktree create --no-focus` or workspace on `dir`, write its workspace file, start the agent with the configured launch command
+- [ ] 6.2 `herdfile ws add`: `herdr worktree create --no-focus` or workspace on `dir`, write its workspace file, start the agent (`agent start --kind` or a typed wrapper `command`), wait for ready, send the brief with `agent prompt`
 - [ ] 6.3 `herdfile ws remove`: idle wait, merged check, `herdr worktree remove`, re-parent children
 - [ ] 6.4 `herdfile tree` with live status; workspace write-back; `adopt --all`
 
