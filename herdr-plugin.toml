@@ -1,0 +1,15 @@
+id = "rlch.herdfile"
+name = "herdfile"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Declarative workspaces: one file per workspace, and a hidden watcher that makes herdr match it"
+platforms = ["linux", "macos"]
+
+# Download the matching release binary into ./bin, or build it from source.
+[[build]]
+command = ["sh", "scripts/install.sh"]
+
+# Start the hidden watcher. A lock keeps it to one per herdr server, so the
+# re-run after a live handoff exits at once.
+[[startup]]
+command = ["sh", "scripts/herdfile.sh", "watch", "--detach"]
