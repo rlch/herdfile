@@ -108,16 +108,26 @@ pub fn apply(target: &Target, state: &mut WsState) -> Result<Report> {
     if snap.workspace(ws).is_none() {
         bail!("workspace {ws} is not open in herdr");
     }
-    // An invalid file changes nothing, not even write-back.
-    let (mut file, _) = load_checked(&target.file_path, &snap, ws)?;
+    // First sight: no file yet. Write-back records the workspace as it is.
+    let first_sight = !target.file_path.exists();
+    let (mut file, services) = if first_sight {
+        let mut file = WorkspaceFile::empty(&target.file_path);
+        if let Some(dir) = workspace_dir(&file, &snap, ws) {
+            file.set_dir(&dir.to_string_lossy());
+        }
+        let services = load_services(&file, &snap, ws)?;
+        (file, services)
+    } else {
+        // An invalid file changes nothing, not even write-back.
+        load_checked(&target.file_path, &snap, ws)?
+    };
 
     let mut report = Report::default();
     let before = file.to_text();
-    report.writeback = writeback(backend, &mut snap, ws, &mut file, state)?;
-    if file.to_text() != before {
+    report.writeback = writeback(backend, &mut snap, ws, &mut file, state, &services)?;
+    if first_sight || file.to_text() != before {
         file.save()?;
     }
-    let services = load_services(&file, &snap, ws)?;
     file.validate(&services)?;
 
     let mut ctx = Ctx {

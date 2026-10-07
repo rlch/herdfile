@@ -99,13 +99,16 @@ fn hand_opened_shell_is_recorded_in_place() {
     ]);
     t.eventually("shell recorded", || t.read_ws_file(&ws).contains("shell-1"));
     let file = t.read_ws_file(&ws);
+    // In its place, with the sizes on screen, so no divider moves.
     assert!(
-        file.contains(r#"row = ["agent", { pane = "shell-1", mark = "unmanaged""#),
+        file.contains(r#"row = [{ pane = "agent", size = 25 }, { pane = "shell-1", size = 25, mark = "unmanaged""#),
         "{file}"
     );
+    let ratios = t.splits_of(&ws, "agent");
     settle();
     assert!(t.pane(&ws, "shell-1").is_some());
     assert_eq!(t.tab_labels(&ws, "main"), ["agent", "shell-1", "test"]);
+    assert_eq!(t.splits_of(&ws, "agent"), ratios, "a divider moved");
 }
 
 #[test]

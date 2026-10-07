@@ -1,13 +1,15 @@
-//! Fold hand changes into the workspace file before each apply: hand closes,
-//! panes opened outside herdfile, and dragged sizes.
+//! Fold what is live into the workspace file before each apply: panes the
+//! file does not know (all of them, the first time a workspace is seen),
+//! hand closes, and dragged sizes.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Result;
 
 use crate::backend::{Backend, Pane, Snapshot};
-use crate::layout::{round5, shape_of, Container, Dir, Leaf, Mark, Node};
+use crate::layout::{round5, shape_of, Container, Dir, Leaf, Mark, Node, Shape};
 use crate::live::{shares_by_parent, LiveNode};
+use crate::services::{Services, RESERVED};
 use crate::wsfile::WorkspaceFile;
 
 /// What the watcher remembers about one workspace between passes. Nothing
@@ -90,7 +92,33 @@ pub fn label_prefix(pane: &Pane) -> String {
     }
 }
 
-/// Label every unlabelled pane in a workspace. Returns the labels given.
+/// Give every tab of a workspace a unique label: the file names tabs by
+/// label, herdr does not require them to be unique.
+fn label_tabs(backend: &dyn Backend, snap: &mut Snapshot, ws: &str) -> Result<()> {
+    let mut tabs: Vec<(String, u32, Option<String>)> = snap
+        .tabs_of(ws)
+        .map(|t| (t.tab_id.clone(), t.number, t.label.clone()))
+        .collect();
+    tabs.sort_by_key(|t| t.1);
+    let mut seen = HashSet::new();
+    for (id, number, label) in tabs {
+        let mut name = label.clone().unwrap_or_else(|| number.to_string());
+        if !seen.insert(name.clone()) {
+            name = format!("{name}-{number}");
+            seen.insert(name.clone());
+        }
+        if label.as_deref() != Some(name.as_str()) {
+            backend.rename_tab(&id, &name)?;
+            if let Some(t) = snap.tabs.iter_mut().find(|t| t.tab_id == id) {
+                t.label = Some(name);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Label every unlabelled pane in a workspace, in screen order. The first
+/// one hosting an agent becomes `agent` when the workspace has none.
 pub fn label_unlabelled(
     backend: &dyn Backend,
     snap: &mut Snapshot,
@@ -99,15 +127,32 @@ pub fn label_unlabelled(
 ) -> Result<Vec<String>> {
     let mut taken: HashSet<String> = file_names.clone();
     taken.extend(snap.panes_of(ws).filter_map(|p| p.label.clone()));
+    let mut agent_free = !taken.contains(RESERVED);
+    let mut tabs: Vec<_> = snap.tabs_of(ws).cloned().collect();
+    tabs.sort_by_key(|t| t.number);
+    let order: Vec<String> = tabs
+        .iter()
+        .filter_map(|t| LiveNode::of_tab(snap, &t.tab_id))
+        .flat_map(|tree| tree.leaves().into_iter().map(|(id, _)| id))
+        .collect();
     let mut given = Vec::new();
-    for pane in snap.panes.iter_mut().filter(|p| p.workspace_id == ws) {
-        if pane.label.is_none() {
-            let label = generate_label(&label_prefix(pane), &taken);
-            backend.rename_pane(&pane.pane_id, Some(&label))?;
-            taken.insert(label.clone());
-            pane.label = Some(label.clone());
-            given.push(label);
+    for id in order {
+        let Some(pane) = snap.panes.iter_mut().find(|p| p.pane_id == id) else {
+            continue;
+        };
+        if pane.label.is_some() {
+            continue;
         }
+        let label = if agent_free && pane.agent.is_some() {
+            agent_free = false;
+            RESERVED.to_string()
+        } else {
+            generate_label(&label_prefix(pane), &taken)
+        };
+        backend.rename_pane(&pane.pane_id, Some(&label))?;
+        taken.insert(label.clone());
+        pane.label = Some(label.clone());
+        given.push(label);
     }
     Ok(given)
 }
@@ -126,20 +171,24 @@ fn anchor_for(tree: &LiveNode, pane_id: &str, file: &WorkspaceFile) -> Option<(S
     Some((label.clone(), dir, is_second))
 }
 
-/// Fold hand changes in workspace `ws` into `file`. Renames unlabelled panes
-/// in herdr (labels are herdfile's identity). Returns what changed.
+/// Fold what is live into `file`: panes it does not know (including, on
+/// first sight, every pane of a workspace with no file yet), hand closes,
+/// and dragged sizes. Renames unlabelled panes and tabs in herdr, since
+/// labels are herdfile's identity. Returns what changed.
 pub fn writeback(
     backend: &dyn Backend,
     snap: &mut Snapshot,
     ws: &str,
     file: &mut WorkspaceFile,
     state: &mut WsState,
+    services: &Services,
 ) -> Result<WritebackReport> {
     let mut report = WritebackReport::default();
+    label_tabs(backend, snap, ws)?;
     let file_names: HashSet<String> = file.leaf_names().into_iter().collect();
     let labelled = label_unlabelled(backend, snap, ws, &file_names)?;
 
-    // Panes opened outside herdfile: unlabelled ones we just named, and
+    // Panes the file does not know: unlabelled ones we just named, and
     // labelled ones never seen in the file.
     let new_panes: HashSet<String> = snap
         .panes_of(ws)
@@ -158,23 +207,51 @@ pub fn writeback(
             continue;
         };
         let tab_name = tab.label.clone().unwrap_or_else(|| tab.number.to_string());
-        for (pane_id, label) in tree.leaves() {
-            let Some(label) = label else { continue };
-            if !new_panes.contains(&label) {
-                continue;
+        let leaves = tree.leaves();
+        let new_here: Vec<(String, String)> = leaves
+            .iter()
+            .filter_map(|(id, l)| {
+                l.clone()
+                    .filter(|l| new_panes.contains(l))
+                    .map(|l| (id.clone(), l))
+            })
+            .collect();
+        if new_here.is_empty() {
+            continue;
+        }
+        // Services and the agent are the file's own; anything else was
+        // opened outside it and is never closed automatically.
+        let leaf_for = |label: &str| {
+            if label == RESERVED || services.contains(label) {
+                Leaf::new(label)
+            } else {
+                Leaf {
+                    name: label.to_string(),
+                    size: None,
+                    mark: Mark::Unmanaged,
+                    cwd: snap.pane_by_label(ws, label).and_then(|p| p.cwd.clone()),
+                }
             }
-            let pane = snap.pane(&pane_id);
-            let leaf = Leaf {
-                name: label.clone(),
-                size: None,
-                mark: Mark::Unmanaged,
-                cwd: pane.and_then(|p| p.cwd.clone()),
-            };
-            let anchor = anchor_for(&tree, &pane_id, file);
-            let anchor_ref = anchor
-                .as_ref()
-                .map(|(a, d, after)| (a.as_str(), Some(*d), *after));
-            file.insert(&tab_name, leaf, anchor_ref)?;
+        };
+        if file.tab(&tab_name).is_none() && new_here.len() == leaves.len() {
+            // A whole tab the file has never seen: take it as it is.
+            file.set_tab(&tab_name, tree_from_live(&tree.shape(), &leaf_for));
+        } else {
+            for (pane_id, label) in &new_here {
+                let anchor = anchor_for(&tree, pane_id, file);
+                let anchor_ref = anchor
+                    .as_ref()
+                    .map(|(a, d, after)| (a.as_str(), Some(*d), *after));
+                file.insert(&tab_name, leaf_for(label), anchor_ref)?;
+            }
+            // Keep the screen as it is: the tab's sizes come from live.
+            if let Some(current) = file.tab(&tab_name).map(|t| t.tree.clone()) {
+                if let Some(updated) = exact_sizes_from_live(&current, &tree) {
+                    file.replace_tree_if_changed(&tab_name, updated);
+                }
+            }
+        }
+        for (_, label) in new_here {
             state.known.insert(label.clone());
             report.recorded.push(label);
         }
@@ -221,6 +298,95 @@ pub fn writeback(
         state.ratios.insert(label.clone(), now);
     }
     Ok(report)
+}
+
+/// A file tree for a live layout, with sizes to the whole percent when panes
+/// are not shared equally.
+pub fn tree_from_live(shape: &Shape, leaf: &dyn Fn(&str) -> Leaf) -> Container {
+    match shape {
+        Shape::Leaf(name) => Container {
+            dir: Dir::Row,
+            size: None,
+            children: vec![Node::Leaf(leaf(name))],
+        },
+        Shape::Split(dir, children) => {
+            let shares: Vec<f64> = children.iter().map(|c| c.1).collect();
+            let sizes = whole_sizes(&shares);
+            let mut out = Vec::new();
+            for ((child, _), size) in children.iter().zip(sizes) {
+                let mut node = match child {
+                    Shape::Leaf(name) => Node::Leaf(leaf(name)),
+                    Shape::Split(..) => Node::Box(tree_from_live(child, leaf)),
+                };
+                node.set_size(size);
+                out.push(node);
+            }
+            Container {
+                dir: *dir,
+                size: None,
+                children: out,
+            }
+        }
+    }
+}
+
+/// Sizes for children with these shares: none when equal, else whole
+/// percents for all but the last, which takes the rest.
+fn whole_sizes(shares: &[f64]) -> Vec<Option<u8>> {
+    let n = shares.len() as f64;
+    if shares.iter().all(|s| (s - 1.0 / n).abs() < 0.01) {
+        return vec![None; shares.len()];
+    }
+    let mut out: Vec<Option<u8>> = shares[..shares.len() - 1]
+        .iter()
+        .map(|s| Some(((s * 100.0).round() as u8).clamp(1, 98)))
+        .collect();
+    let used: u32 = out.iter().flatten().map(|s| u32::from(*s)).sum();
+    if used >= 100 {
+        return vec![None; shares.len()];
+    }
+    out.push(None);
+    out
+}
+
+/// After a pane is recorded into an existing tab, set every size in the tab
+/// to what is on screen (whole percents), so apply moves no divider.
+/// `None` when the layouts differ or nothing changes.
+pub fn exact_sizes_from_live(tree: &Container, live: &LiveNode) -> Option<Container> {
+    let names: HashSet<String> = tree.leaf_names().into_iter().collect();
+    let pruned = live.prune(&|l| l.map(|l| names.contains(l)).unwrap_or(false))?;
+    let live_shape = pruned.shape();
+    if !live_shape.same_layout(&shape_of(tree, &|_| true)?) {
+        return None;
+    }
+    let shares = shares_by_parent(&live_shape);
+    fn walk(c: &mut Container, shares: &HashMap<(String, Dir), f64>) -> bool {
+        let normal = c.children.len() > 1
+            && c.children.iter().all(|ch| {
+                !matches!(ch, Node::Box(inner) if inner.dir == c.dir || inner.children.len() < 2)
+            });
+        if !normal {
+            return false;
+        }
+        let live: Option<Vec<f64>> = c
+            .children
+            .iter()
+            .map(|ch| shares.get(&(ch.first_leaf().name.clone(), c.dir)).copied())
+            .collect();
+        let Some(live) = live else { return false };
+        for (child, size) in c.children.iter_mut().zip(whole_sizes(&live)) {
+            child.set_size(size);
+        }
+        c.children.iter_mut().all(|ch| match ch {
+            Node::Box(inner) => walk(inner, shares),
+            Node::Leaf(_) => true,
+        })
+    }
+    let mut out = tree.clone();
+    if !walk(&mut out, &shares) || out.validate("").is_err() || &out == tree {
+        return None;
+    }
+    Some(out)
 }
 
 /// Write live shares into a file tree, rounded to 5%. Returns `None` when the

@@ -24,10 +24,10 @@
 - [x] 3.5 Invalid file changes nothing and reports the error with file and line
 - [x] 3.6 Debounce file edits; full snapshot diff after each apply
 
-## 4. Adopt
+## 4. First sight
 
-- [x] 4.1 `herdfile adopt [<workspace>]` writes a file from the snapshot, generating labels for unlabelled panes
-- [x] 4.2 Refuse to overwrite without `--force`; first apply after adopt changes nothing
+- [x] 4.1 A workspace with no file is recorded by write-back from the snapshot (labels for unlabelled panes, `agent` for the first agent pane, sizes from screen); no adopt command
+- [x] 4.2 `[watch] workspaces` scope; first apply after first sight changes nothing
 
 ## 5. Write-back
 
@@ -42,7 +42,7 @@
 - [x] 6.1 Parse and validate `workspaces.toml` (unique names, known parents, no cycles)
 - [x] 6.2 `herdfile ws add`: `herdr worktree create --no-focus` or workspace on `dir`, write its workspace file, start the agent (`agent start --kind` or a typed wrapper `command`), wait for ready, send the brief with `agent prompt`
 - [x] 6.3 `herdfile ws remove`: idle wait, merged check, `herdr worktree remove`, re-parent children
-- [x] 6.4 `herdfile tree` with live status; workspace write-back; `adopt --all`
+- [x] 6.4 `herdfile tree` with live status; workspace write-back, including first sight
 
 ## 7. Messaging and needs you
 
@@ -54,4 +54,4 @@
 ## 8. Verify
 
 - [x] 8.1 Integration tests against a throwaway herdr server, one per spec scenario
-- [ ] 8.2 Dogfood: adopt every open workspace, confirm nothing closes, then edit one file by hand
+- [ ] 8.2 Dogfood: scope one workspace, then all; confirm nothing closes or moves, then edit one file by hand

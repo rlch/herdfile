@@ -225,9 +225,26 @@ event that does not is a hand change (or an outside agent) and goes to write-bac
 and a command hit the same pane before apply runs, the hand change wins and the command reports
 that its change was dropped.
 
+### First sight is write-back; no adopt command
+
+An earlier draft had `herdfile adopt` to write a file for an open workspace, and `adopt --all` for
+the file of workspaces. Both are write-back with an empty file, so the watcher does it instead: any
+pane or workspace the file does not know is recorded, and on first sight that is everything. When a
+pane or tab is recorded, its sizes come from the screen (whole percents), so recording never moves a
+divider. Which workspaces the watcher manages is a setting, not a command:
+
+```toml
+# ~/.config/herdfile/config.toml
+[watch]
+workspaces = ["*"]          # default; or labels, with a trailing * for a prefix
+```
+
+Rejected: keeping `adopt` as an opt-in step. It is a one-off command doing what write-back already
+does, and every workspace opened later would need it again.
+
 ### One writer at a time
 
-A file lock per workspace serialises apply, write-back, and `adopt`. This also closes the
+A file lock per workspace serialises apply and write-back. This also closes the
 find-or-create race that herdr itself does not guard against.
 
 ### No focus, no rearranging the operator's view
@@ -282,7 +299,7 @@ status.
 
 The same hand-change rule applies one level up. A workspace the operator closes by hand is removed
 from the file. A workspace created outside herdfile is added as `unmanaged` and never removed
-automatically. `herdfile adopt --all` writes entries for every open workspace as `unmanaged`.
+automatically. The first time the watcher sees an open workspace, it is added as `unmanaged`.
 
 ### Starting an agent: kind, args, then the brief as a prompt
 
@@ -384,9 +401,11 @@ around it:
 
 ## Migration Plan
 
-`adopt` writes a file for each open workspace from what is on screen, marking existing panes
-`unmanaged` unless their label matches a service. Nothing is closed on the first apply of an adopted
-file. Uninstalling herdfile leaves herdr as it is.
+There is no migration step. Write-back records whatever the file does not know, and a workspace
+with no file is one where it knows nothing: on first sight the watcher writes the file from what is
+on screen, sizes included, marking panes `unmanaged` unless their label is a service or `agent`.
+Nothing is closed, moved, or resized. Rollout is by scope: `[watch] workspaces = ["hf-dogfood"]`
+first, then `["*"]`. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 

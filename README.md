@@ -25,6 +25,15 @@ one per herdr server, behind a lock. `herdfile status` says whether it is
 running; every command warns when it is not. It logs to
 `$XDG_STATE_HOME/herdfile/watch.log` (default `~/.local/state/herdfile/`).
 
+Which workspaces the watcher manages is a setting (default: all). To try it on
+one workspace first, set this before installing, then widen it:
+
+```toml
+# ~/.config/herdfile/config.toml
+[watch]
+workspaces = ["hf-dogfood"]       # labels; a trailing * matches a prefix; "*" is all
+```
+
 To put `herdfile` itself on your PATH: `cargo install --git https://github.com/rlch/herdfile`.
 
 ## Services: `.herdr/services.toml`
@@ -80,11 +89,14 @@ herdfile set main 'row = ["agent", { column = ["test", "dev"] }]'
 herdfile mark shell-1 mine
 herdfile show
 herdfile apply                        # apply now
-herdfile adopt [<workspace-id>]       # write a file from what is on screen
 ```
 
 What the watcher does:
 
+- records what the file does not know: a pane opened by hand or by an agent
+  calling herdr directly, and on first sight a whole workspace, exactly as it
+  is on screen, sizes included. Services and `agent` are recorded as managed,
+  anything else as `unmanaged`. Nothing is closed, moved or resized by this;
 - finds panes by label (its identity), never by id;
 - opens services in their `cwd` with `env`, and closes managed panes the file
   drops, except agents that are `working` or `blocked`: those close on their
@@ -93,9 +105,8 @@ What the watcher does:
   sets split ratios; nothing is restarted;
 - never takes focus, and leaves moves in the tab you are looking at until you
   leave it (opens and closes still happen);
-- writes your hand changes back: a pane you close leaves the file, a pane opened
-  outside herdfile is recorded as `unmanaged` where it sits, and a divider you
-  drag is written as a size rounded to 5%. If your hand change and an agent's
+- writes your hand changes back: a pane you close leaves the file, and a
+  divider you drag is written as a size rounded to 5%. If your hand change and an agent's
   command hit the same pane, yours wins and the command says its change was
   dropped.
 
@@ -124,7 +135,6 @@ herdfile ws add review-pr-312 --dir ~/dev/app --branch review-pr-312 \
   --parent land-prs --purpose "review PR 312" --brief briefs/review-312.md --model opus
 herdfile ws remove review-pr-312
 herdfile tree                     # names, purposes, parents, live agent status
-herdfile adopt --all              # record every open workspace; closes nothing
 ```
 
 `ws add` creates the workspace with `herdr worktree create --no-focus` (with
@@ -137,8 +147,8 @@ remove`) only once its branch is merged into its base, squash merges included;
 with unmerged commits nothing is removed and it goes on the "needs you" list.
 A workspace without a branch is closed, never with `--group`, and its folder is
 kept. Children of a removed workspace move up to its parent. A workspace you
-close by hand leaves the file; one opened outside herdfile is recorded as
-`unmanaged`.
+close by hand leaves the file; one opened outside herdfile, or open before
+herdfile was, is recorded as `unmanaged`.
 
 ### Agent command
 

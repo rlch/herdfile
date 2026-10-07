@@ -315,6 +315,34 @@ pub fn load_config() -> Result<AgentConfig> {
     Ok(cfg)
 }
 
+/// `[watch] workspaces`: labels of the workspaces the watcher keeps files
+/// for. `"*"` (the default) is all; a trailing `*` matches a prefix.
+pub fn watch_scope() -> Vec<String> {
+    let all = vec!["*".to_string()];
+    let Ok(text) = std::fs::read_to_string(paths::config_file()) else {
+        return all;
+    };
+    let Ok(doc) = text.parse::<DocumentMut>() else {
+        return all;
+    };
+    doc.get("watch")
+        .and_then(|w| w.get("workspaces"))
+        .and_then(Item::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or(all)
+}
+
+pub fn in_scope(scope: &[String], label: &str) -> bool {
+    scope.iter().any(|p| match p.strip_suffix('*') {
+        Some(prefix) => label.starts_with(prefix),
+        None => p == label,
+    })
+}
+
 /// Fill `{model}` in each argument. Without a model, an argument naming it is
 /// dropped, with the flag before it.
 pub fn expand_args(args: &[String], model: Option<&str>) -> Vec<String> {
@@ -780,13 +808,10 @@ fn known_path() -> PathBuf {
     paths::state_dir().join(".workspaces.seen.json")
 }
 
-/// Fold hand changes to workspaces into the file and finish pending
-/// removals. Only acts once the file of workspaces exists.
-pub fn tick(backend: &dyn Backend, state: &mut FleetState) -> Result<()> {
-    let path = paths::workspaces_file();
-    if !path.exists() {
-        return Ok(());
-    }
+/// Fold what is open into the file of workspaces (every workspace in scope
+/// the first time it is seen), drop ones closed by hand, and finish pending
+/// removals.
+pub fn tick(backend: &dyn Backend, state: &mut FleetState, scope: &[String]) -> Result<()> {
     let due_removals = state
         .last_removal_check
         .map(|t| t.elapsed() > std::time::Duration::from_secs(5))
@@ -806,6 +831,7 @@ pub fn tick(backend: &dyn Backend, state: &mut FleetState) -> Result<()> {
     let live: BTreeMap<String, String> = snap
         .workspaces
         .iter()
+        .filter(|w| in_scope(scope, w.label.as_deref().unwrap_or("")))
         .map(|w| {
             (
                 w.label.clone().unwrap_or_else(|| w.workspace_id.clone()),
@@ -874,46 +900,6 @@ pub fn tick(backend: &dyn Backend, state: &mut FleetState) -> Result<()> {
     Ok(())
 }
 
-/// `adopt --all`: every open workspace into the file of workspaces as
-/// unmanaged, and a workspace file for each that lacks one. Closes nothing.
-pub fn adopt_all() -> Result<()> {
-    let backend = Herdr::from_env();
-    let snap = backend.snapshot()?;
-    let added = edit(|file| {
-        let mut added = Vec::new();
-        for w in &snap.workspaces {
-            let label = w.label.clone().unwrap_or_else(|| w.workspace_id.clone());
-            if file.get(&label).is_some() {
-                continue;
-            }
-            let dir = snap
-                .panes_of(&w.workspace_id)
-                .find_map(|p| p.cwd.clone())
-                .unwrap_or_else(|| "~".into());
-            file.add(Entry {
-                name: label.clone(),
-                dir,
-                unmanaged: true,
-                ..Entry::default()
-            });
-            added.push(label);
-        }
-        Ok(added)
-    })?;
-    println!("workspaces recorded as unmanaged: {}", added.len());
-    for w in &snap.workspaces {
-        if paths::workspace_file(&w.workspace_id).exists() {
-            continue;
-        }
-        match crate::adopt::adopt_with(&backend, &w.workspace_id, false) {
-            Ok(path) => println!("wrote {}", path.display()),
-            Err(e) => eprintln!("herdfile: {}: {e:#}", w.workspace_id),
-        }
-    }
-    crate::control::warn_if_no_watcher();
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -953,6 +939,16 @@ mod tests {
             .doc
             .to_string()
             .contains("[review]\ndir = \"~\"\nparent = \"orch\""));
+    }
+
+    #[test]
+    fn scope_matching() {
+        let all = vec!["*".to_string()];
+        assert!(in_scope(&all, "anything"));
+        let some = vec!["hf-dogfood".to_string(), "review-*".to_string()];
+        assert!(in_scope(&some, "hf-dogfood"));
+        assert!(in_scope(&some, "review-pr-312"));
+        assert!(!in_scope(&some, "land-prs"));
     }
 
     #[test]

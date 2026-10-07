@@ -86,7 +86,7 @@ Apply SHALL create and change panes, tabs, and worktrees only through herdr's CL
 - **THEN** the pane appears in `herdr api snapshot` with its label set
 
 ### Requirement: One writer at a time
-Apply, write-back, and adopt SHALL hold a lock per workspace while they read herdr and change it or
+Apply and write-back SHALL hold a lock per workspace while they read herdr and change it or
 the file.
 
 #### Scenario: Two edits at once
@@ -117,3 +117,13 @@ it is running, and other herdfile commands SHALL warn when it is not.
 #### Scenario: Watcher is down
 - **WHEN** an agent runs `herdfile path` and no watcher is running
 - **THEN** the path is printed with a warning that edits will not be applied
+
+### Requirement: The watcher manages the workspaces in scope
+The watcher SHALL manage every open workspace whose label matches `[watch] workspaces` in herdfile's
+config file, defaulting to `["*"]` (all). A trailing `*` SHALL match a label prefix. The watcher MUST
+NOT label, record, or change anything in a workspace outside that scope.
+
+#### Scenario: Narrow scope
+- **WHEN** the config has `[watch] workspaces = ["hf-dogfood"]` and workspaces `hf-dogfood` and
+  `land-prs` are open
+- **THEN** only `hf-dogfood` gets a file, and no pane of `land-prs` is renamed

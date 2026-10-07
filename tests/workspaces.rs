@@ -248,8 +248,8 @@ fn hand_changes_to_workspaces_are_written_back() {
 }
 
 #[test]
-fn adopt_all_records_everything_and_closes_nothing() {
-    let t = TestServer::start();
+fn first_sight_records_every_workspace_and_closes_nothing() {
+    let mut t = TestServer::start();
     decoy(&t);
     t.herdr(&[
         "workspace",
@@ -261,16 +261,16 @@ fn adopt_all_records_everything_and_closes_nothing() {
         "--no-focus",
     ]);
     let panes = t.snapshot()["panes"].as_array().unwrap().len();
-    t.ok(None, &["adopt", "--all"]);
-    let file = t.workspaces_file();
-    assert!(
-        file.contains("[decoy]") && file.contains("[other]"),
-        "{file}"
-    );
-    for id in ["w1", "w2"] {
-        assert!(t.ws_file(id).exists());
-        t.ok(None, &["apply", "-w", id]);
-    }
+    t.start_watcher();
+    t.eventually("workspaces recorded", || {
+        let f = t.workspaces_file();
+        f.contains("[decoy]") && f.contains("[other]")
+    });
+    assert!(t.workspaces_file().contains("unmanaged = true"));
+    t.eventually("workspace files written", || {
+        t.ws_file("w1").exists() && t.ws_file("w2").exists()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(1200));
     assert_eq!(t.snapshot()["panes"].as_array().unwrap().len(), panes);
 }
 

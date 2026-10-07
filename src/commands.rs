@@ -10,7 +10,7 @@ use crate::apply::{load_services, Report};
 use crate::backend::herdr::Herdr;
 use crate::backend::Backend;
 use crate::control::{self, Reply, Request};
-use crate::layout::{Container, Dir, Leaf, Mark, Node};
+use crate::layout::{Dir, Leaf, Mark};
 use crate::lock::FileLock;
 use crate::paths;
 use crate::wsfile::WorkspaceFile;
@@ -309,40 +309,4 @@ pub fn status() -> Result<()> {
         crate::backend::herdr::default_socket().display()
     );
     Ok(())
-}
-
-/// Build a file tree from a live tab, with sizes to the whole percent when
-/// panes are not shared equally.
-pub fn tree_from_live(shape: &crate::layout::Shape, leaf: &dyn Fn(&str) -> Leaf) -> Container {
-    use crate::layout::Shape;
-    match shape {
-        Shape::Leaf(name) => Container {
-            dir: Dir::Row,
-            size: None,
-            children: vec![Node::Leaf(leaf(name))],
-        },
-        Shape::Split(dir, children) => {
-            let n = children.len() as f64;
-            let equal = children.iter().all(|(_, s)| (s - 1.0 / n).abs() < 0.01);
-            let mut out = Vec::new();
-            for (i, (child, share)) in children.iter().enumerate() {
-                let size = if equal || i + 1 == children.len() {
-                    None
-                } else {
-                    Some(((share * 100.0).round() as u8).clamp(1, 99))
-                };
-                let mut node = match child {
-                    Shape::Leaf(name) => Node::Leaf(leaf(name)),
-                    Shape::Split(..) => Node::Box(tree_from_live(child, leaf)),
-                };
-                node.set_size(size);
-                out.push(node);
-            }
-            Container {
-                dir: *dir,
-                size: None,
-                children: out,
-            }
-        }
-    }
 }

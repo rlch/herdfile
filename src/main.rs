@@ -1,6 +1,5 @@
 //! herdfile: declarative workspaces for herdr.
 
-mod adopt;
 mod apply;
 mod backend;
 mod commands;
@@ -124,18 +123,6 @@ enum Cmd {
     Apply {
         #[command(flatten)]
         ws: WsArg,
-    },
-    /// Write a workspace file from what is on screen
-    Adopt {
-        /// herdr workspace id (default: $HERDR_WORKSPACE_ID)
-        workspace: Option<String>,
-        /// Overwrite an existing file
-        #[arg(long)]
-        force: bool,
-        /// Every open workspace: into the file of workspaces as unmanaged,
-        /// and a workspace file for each that has none. Closes nothing.
-        #[arg(long, conflicts_with_all = ["workspace", "force"])]
-        all: bool,
     },
     /// The file of workspaces: add or remove a workspace
     #[command(subcommand)]
@@ -289,10 +276,6 @@ fn run(cmd: Cmd) -> anyhow::Result<()> {
             },
         ),
         Cmd::Apply { ws } => commands::apply_now(&resolve_workspace(ws.workspace)?),
-        Cmd::Adopt { all: true, .. } => workspaces::adopt_all(),
-        Cmd::Adopt {
-            workspace, force, ..
-        } => adopt::adopt(&resolve_workspace(workspace)?, force),
         Cmd::Ws(WsCmd::Add {
             name,
             dir,

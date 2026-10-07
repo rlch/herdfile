@@ -87,6 +87,8 @@ struct Watcher {
     self_passes: HashMap<String, u32>,
     waiting: HashMap<String, Vec<UnixStream>>,
     mtimes: HashMap<PathBuf, SystemTime>,
+    /// Live workspaces in scope, by id.
+    scoped: Vec<String>,
     /// What each workspace looked like after our last pass.
     signatures: HashMap<String, String>,
     fleet: crate::workspaces::FleetState,
@@ -174,10 +176,12 @@ pub fn run() -> Result<()> {
         self_passes: HashMap::new(),
         waiting: HashMap::new(),
         mtimes: HashMap::new(),
+        scoped: Vec::new(),
         signatures: HashMap::new(),
         fleet: Default::default(),
     };
     // Apply every existing file once at start.
+    w.refresh_scope();
     w.scan_files(true);
     let mut last_file_poll = Instant::now();
     let mut last_status_poll = Instant::now();
@@ -269,8 +273,30 @@ fn reply(mut stream: UnixStream, reply: &Reply) {
 }
 
 impl Watcher {
+    /// Workspaces the watcher keeps files for: every live one the
+    /// `[watch] workspaces` setting allows.
+    fn refresh_scope(&mut self) {
+        let Ok(snap) = self.backend.snapshot() else {
+            return;
+        };
+        let scope = crate::workspaces::watch_scope();
+        let now: Vec<String> = snap
+            .workspaces
+            .iter()
+            .filter(|w| crate::workspaces::in_scope(&scope, w.label.as_deref().unwrap_or("")))
+            .map(|w| w.workspace_id.clone())
+            .collect();
+        for ws in &now {
+            // First sight of a workspace: record it.
+            if !self.scoped.contains(ws) {
+                self.mark(ws, Duration::ZERO, true);
+            }
+        }
+        self.scoped = now;
+    }
+
     fn managed(&self, ws: &str) -> bool {
-        paths::workspace_file(ws).exists()
+        self.scoped.iter().any(|w| w == ws)
     }
 
     fn mark(&mut self, ws: &str, delay: Duration, external: bool) {
@@ -288,23 +314,16 @@ impl Watcher {
     }
 
     fn managed_ids(&self) -> Vec<String> {
-        let Ok(entries) = std::fs::read_dir(paths::state_dir()) else {
-            return Vec::new();
-        };
-        entries
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
-                let id = name.strip_suffix(".toml")?.to_string();
-                (id != "workspaces").then_some(id)
-            })
-            .collect()
+        self.scoped.clone()
     }
 
     fn on_event(&mut self, e: Event) {
         self.fleet.dirty = true;
         if e.kind == "subscribed" {
             return;
+        }
+        if e.kind.starts_with("workspace_") {
+            self.refresh_scope();
         }
         match e.workspace_id() {
             // Our own operations land here too; they are told apart from
@@ -377,6 +396,7 @@ impl Watcher {
     /// Agent status is not an event herdr broadcasts, so poll it: close
     /// panes waiting for idle, track blocked agents, finish removals.
     fn poll_status(&mut self) {
+        self.refresh_scope();
         let Ok(snap) = self.backend.snapshot() else {
             return;
         };
@@ -412,7 +432,8 @@ impl Watcher {
     }
 
     fn fleet_tick(&mut self) {
-        if let Err(e) = crate::workspaces::tick(&self.backend, &mut self.fleet) {
+        let scope = crate::workspaces::watch_scope();
+        if let Err(e) = crate::workspaces::tick(&self.backend, &mut self.fleet, &scope) {
             log(&format!("workspaces: {e:#}"));
         }
     }
@@ -435,9 +456,15 @@ impl Watcher {
     fn pass(&mut self, ws: &str, external: bool) {
         let waiters = self.waiting.remove(ws).unwrap_or_default();
         let path = paths::workspace_file(ws);
-        if !path.exists() {
+        if !self.managed(ws) && !path.exists() {
             for s in waiters {
-                reply(s, &Reply::error(format!("no workspace file for {ws}")));
+                reply(
+                    s,
+                    &Reply::error(format!(
+                        "{ws} is outside the watcher's scope ([watch] workspaces in {})",
+                        paths::config_file().display()
+                    )),
+                );
             }
             return;
         }

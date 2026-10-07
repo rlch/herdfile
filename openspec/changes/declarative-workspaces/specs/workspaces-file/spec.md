@@ -67,8 +67,9 @@ the removed entry's parent. A cycle MUST be rejected.
 
 ### Requirement: Hand changes to workspaces are written back
 A workspace the operator closes by hand SHALL be removed from the file. A workspace created outside
-herdfile SHALL be added as `unmanaged` and never removed automatically. `herdfile adopt --all` SHALL
-add every open workspace as `unmanaged` without closing anything.
+herdfile SHALL be added as `unmanaged` and never removed automatically. The first time the watcher
+sees an open workspace in scope that the file does not list, it SHALL add it as `unmanaged` without
+closing anything.
 
 #### Scenario: Operator closes a workspace
 - **WHEN** the operator closes workspace `review-pr-312` by hand

@@ -8,15 +8,34 @@ remove it from the file and MUST NOT reopen it.
 - **WHEN** the operator closes the `dev` pane by hand
 - **THEN** `dev` is removed from the file and stays closed
 
-### Requirement: Hand-opened panes are recorded
-The watcher SHALL record a pane created in a managed workspace by something other than itself. It
-SHALL add it to the file in its tab and position, labelled with a generated unique name if it has
-none, and mark it `unmanaged`. herdr events do not say which client created a pane, so a hand split
-and an outside agent's split look the same. The operator MAY change the mark to `mine`.
+### Requirement: Unknown panes are recorded
+The watcher SHALL record every pane in a managed workspace that the file does not know, in its tab
+and position, labelled with a generated unique name if it has none. A pane whose label is a service
+or `agent` SHALL be recorded as managed; any other pane SHALL be marked `unmanaged`. herdr events do
+not say which client created a pane, so a hand split and an outside agent's split look the same.
+The operator MAY change the mark to `mine`. The tab's sizes SHALL be written from what is on screen,
+so recording a pane moves no divider.
 
 #### Scenario: Operator opens a shell
 - **WHEN** the operator splits a new shell in tab `main`
-- **THEN** the file lists it in `main` marked `unmanaged`, and apply never closes it
+- **THEN** the file lists it in `main` marked `unmanaged`, apply never closes it, and no divider
+  moves
+
+### Requirement: First sight records a workspace as it is
+A managed workspace with no file is one whose panes are all unknown. The watcher SHALL write its
+file from what is on screen: every tab, the tree of rows and columns with sizes, and the pane
+recorded as `agent` being the first unlabelled pane that hosts an agent when none is labelled
+`agent`. There is no separate adopt command. Recording a workspace MUST NOT close, move, or resize
+any pane.
+
+#### Scenario: A workspace seen for the first time
+- **WHEN** a workspace has tab `1` with an agent pane at 65% and a bare shell, and no file
+- **THEN** its file has `[tab.1]` with `{ pane = "agent", size = 65 }` and an `unmanaged` entry for
+  the shell, both panes are labelled in herdr, and nothing on screen changes
+
+#### Scenario: Apply after first sight
+- **WHEN** the watcher has just recorded a workspace and apply runs
+- **THEN** herdr is unchanged
 
 ### Requirement: Dragged sizes are written back
 When the operator changes a split ratio by hand, the watcher SHALL write the new size into the file,

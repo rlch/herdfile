@@ -17,10 +17,11 @@ herdr match that file, and anything left out of the file gets closed.
 - New watcher: when the workspace file changes, it opens, closes, and moves panes so that herdr
   matches the file. It finds panes by label, never steals focus, never closes a working or blocked
   agent, and creates everything through herdr's own commands.
-- New `adopt` command: writes a workspace file for an already-open workspace from what is on screen.
 - Write-back: when the operator closes a pane by hand, the watcher removes it from the file instead
   of reopening it. When a pane is opened outside herdfile (by hand or by an agent calling herdr
   directly), the watcher adds it to the file marked `unmanaged`, so it is never closed automatically.
+  A workspace with no file is the same case: the watcher writes its file from what is on screen, so
+  there is no separate adopt step. A `[watch] workspaces` setting limits which workspaces it manages.
 - New file of workspaces, one level up: each entry is a workspace with a folder, an optional branch
   (which becomes a herdr worktree), a purpose, a parent, and an optional agent to start in it.
   Removing an entry removes the workspace once its agent is idle and its branch is merged.
@@ -40,9 +41,8 @@ herdr match that file, and anything left out of the file gets closed.
   and ownership marks (managed, operator's own, unmanaged).
 - `apply`: the watcher that makes herdr match the workspace file: open, close, move, the idle rule
   for agents, no focus, finding panes by label, and ignoring its own changes.
-- `adopt`: creating a workspace file from a live workspace.
-- `write-back`: recording the operator's hand closes, hand-opened panes, and dragged sizes into the
-  file, and the rule when a hand change and a command collide.
+- `write-back`: recording what is live into the file (hand closes, panes it does not know, a whole
+  workspace on first sight, dragged sizes), and the rule when a hand change and a command collide.
 - `workspaces-file`: the file of workspaces: entries, worktree creation, seeded agents, the parent
   tree, and removal rules.
 - `messaging`: `tell` by name, including `tell parent`.
