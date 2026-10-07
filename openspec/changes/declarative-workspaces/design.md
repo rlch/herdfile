@@ -242,8 +242,9 @@ operator is looking at until they leave it. Opens and closes there still happen.
 - [Event-matching misreads a hand change as the watcher's own, or the reverse] → match on
   operation, label, and tab within a short window. Run a full snapshot diff after every apply as a
   backstop.
-- [An agent edits the file constantly and the screen reshuffles] → agent guidance limits edits to
-  when the task changes or the operator asks. The watcher debounces edits.
+- [An agent changes the layout constantly and background tabs reshuffle] → accepted. The operator
+  does not mind how often; there is no rate limit. Moves in the viewed tab still wait until the
+  operator leaves it.
 - [A closed service loses unsaved work] → services are commands, restartable by definition. Agents
   and `mine` panes are never force-closed.
 - [Plugin startup is one-shot, re-run on handoff] → a detached process behind a lock, the same
@@ -260,5 +261,4 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. How often agents may change the file.
-2. Whether the file of workspaces ships in this change or the next.
+1. Whether the file of workspaces ships in this change or the next.
