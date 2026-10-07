@@ -91,6 +91,23 @@ panes = ["dev"]
 Rejected: an indirection layer in the workspace file (`show = "background" | "beside"`). The file
 must read as the screen.
 
+### The watcher is a hidden background process started by a herdr plugin
+
+herdfile ships as a herdr plugin (`herdr plugin install rlch/herdfile`). Its `[[startup]]` hook runs
+`herdfile watch --detach`, which forks a background process holding `events.subscribe` and exits.
+A lock file ensures one watcher per herdr server, because herdr re-runs startup hooks after a live
+handoff. The watcher has no pane. It logs to `$XDG_STATE_HOME/herdfile/watch.log`.
+`herdfile watch` without `--detach` runs in the foreground for debugging.
+
+```toml
+# herdr-plugin.toml
+[[startup]]
+command = ["herdfile", "watch", "--detach"]
+```
+
+Rejected: running the watcher in a herdr pane. It is one more thing on screen, and nothing restarts
+it after a herdr restart.
+
 ### Workspace files live in a state folder
 
 One file per workspace at `$XDG_STATE_HOME/herdfile/<workspace-id>.toml` (default
@@ -149,7 +166,9 @@ operator is looking at until they leave it. Opens and closes there still happen.
 - [A closed service loses unsaved work] → services are commands, restartable by definition. Agents
   and `mine` panes are never force-closed.
 - [Plugin startup is one-shot, re-run on handoff] → a detached process behind a lock, the same
-  pattern agent-tags uses (if the plugin form is chosen).
+  pattern agent-tags uses.
+- [The watcher dies and nobody notices, since it has no pane] → `herdfile status` reports whether it
+  is running, and every herdfile command warns when it is not.
 - [Two workspaces start the same dev port] → out of scope. The second one fails loudly in its pane.
 
 ## Migration Plan
@@ -160,11 +179,9 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Watcher form: a herdr plugin (startup hook plus a detached process) or a standalone daemon in a
-   herdr pane.
-2. Language: Rust or Python.
-3. Who writes the workspace file: agents edit the text directly, or only through a command
+1. Language: Rust or Python.
+2. Who writes the workspace file: agents edit the text directly, or only through a command
    (`herdfile place dev`), given the watcher writes it too.
-4. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
-5. How often agents may change the file.
-6. Whether the file of workspaces ships in this change or the next.
+3. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
+4. How often agents may change the file.
+5. Whether the file of workspaces ships in this change or the next.

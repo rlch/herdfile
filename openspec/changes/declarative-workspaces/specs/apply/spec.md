@@ -74,3 +74,20 @@ the error where the editing agent can read it.
 #### Scenario: Syntax error
 - **WHEN** an agent saves a file with a TOML syntax error
 - **THEN** no pane is opened or closed, and the error is reported with the file and line
+
+### Requirement: The watcher runs hidden in the background
+The watcher SHALL be started by the herdr plugin's startup hook as a detached background process
+with no pane. At most one watcher SHALL run per herdr server. `herdfile status` SHALL report whether
+it is running, and other herdfile commands SHALL warn when it is not.
+
+#### Scenario: herdr starts
+- **WHEN** herdr starts with the plugin installed
+- **THEN** one watcher is running and no pane or tab was created for it
+
+#### Scenario: Startup hook runs twice
+- **WHEN** herdr re-runs the startup hook after a live handoff
+- **THEN** the second `herdfile watch --detach` sees the lock and exits, leaving one watcher
+
+#### Scenario: Watcher is down
+- **WHEN** an agent runs `herdfile path` and no watcher is running
+- **THEN** the path is printed with a warning that edits will not be applied

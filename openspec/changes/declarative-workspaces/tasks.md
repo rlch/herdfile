@@ -1,6 +1,7 @@
 ## 1. Setup
 
-- [ ] 1.1 Pick language and watcher form (design open questions 1 and 2), scaffold the project and CI
+- [ ] 1.1 Pick language (design open question 1), scaffold the project and CI
+- [ ] 1.4 Plugin manifest with `[[startup]]` running `herdfile watch --detach`; single-instance lock; log file; `herdfile status`
 - [ ] 1.2 herdr client: `api snapshot`, `events.subscribe`, create/split/close/move/rename, with `--no-focus` on every create
 - [ ] 1.3 Per-workspace lock
 
