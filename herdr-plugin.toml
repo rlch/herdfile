@@ -1,6 +1,6 @@
 id = "rlch.herdfile"
 name = "herdfile"
-version = "0.1.2"
+version = "0.1.3"
 min_herdr_version = "0.9.0"
 description = "Declarative workspaces: one file per workspace, and a hidden watcher that makes herdr match it"
 platforms = ["linux", "macos"]
