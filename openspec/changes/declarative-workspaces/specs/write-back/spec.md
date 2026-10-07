@@ -33,3 +33,12 @@ win, and the edit SHALL be reported as dropped.
 - **WHEN** an agent moves `dev` to tab `main` in the file, and the operator closes `dev` before
   apply runs
 - **THEN** `dev` is removed from the file, is not reopened, and the drop is reported
+
+### Requirement: Write-back keeps the file's text
+Write-back SHALL change only the entries it must. Comments, key order, and formatting elsewhere in
+the file MUST be preserved.
+
+#### Scenario: Comment survives a hand close
+- **WHEN** the file has `panes = ["agent", "test"]   # test on the right` and the operator closes
+  `test`
+- **THEN** the line becomes `panes = ["agent"]   # test on the right`

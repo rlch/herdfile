@@ -1,9 +1,10 @@
 ## 1. Setup
 
-- [ ] 1.1 Pick language (design open question 1), scaffold the project and CI
+- [ ] 1.1 Scaffold the Rust crate (`herdfile` binary, `toml_edit`), CI, and release builds for macOS and Linux
 - [ ] 1.4 Plugin manifest with `[[startup]]` running `herdfile watch --detach`; single-instance lock; log file; `herdfile status`
 - [ ] 1.2 herdr client: `api snapshot`, `events.subscribe`, create/split/close/move/rename, with `--no-focus` on every create
 - [ ] 1.3 Per-workspace lock
+- [ ] 1.5 Plugin `[[build]]`: download the matching release binary, fall back to `cargo install`
 
 ## 2. Files
 

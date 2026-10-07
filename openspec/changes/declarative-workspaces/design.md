@@ -108,6 +108,16 @@ command = ["herdfile", "watch", "--detach"]
 Rejected: running the watcher in a herdr pane. It is one more thing on screen, and nothing restarts
 it after a herdr restart.
 
+### Rust, with comment-preserving TOML edits
+
+One Rust binary, `herdfile`. Write-back edits files that agents and the operator also edit, so it
+uses `toml_edit` to change only the affected entries and keep comments, order, and formatting.
+Releases ship prebuilt binaries (macOS arm64/x86_64, Linux x86_64/arm64). The plugin's `[[build]]`
+downloads the matching release binary, falling back to `cargo install` from source.
+
+Rejected: Python. Its built-in `tomllib` only reads. Writing back without losing comments needs
+`tomlkit`, which is one more thing to install.
+
 ### Workspace files live in a state folder
 
 One file per workspace at `$XDG_STATE_HOME/herdfile/<workspace-id>.toml` (default
@@ -179,9 +189,8 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Language: Rust or Python.
-2. Who writes the workspace file: agents edit the text directly, or only through a command
+1. Who writes the workspace file: agents edit the text directly, or only through a command
    (`herdfile place dev`), given the watcher writes it too.
-3. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
-4. How often agents may change the file.
-5. Whether the file of workspaces ships in this change or the next.
+2. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
+3. How often agents may change the file.
+4. Whether the file of workspaces ships in this change or the next.
