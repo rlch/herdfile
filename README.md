@@ -152,7 +152,8 @@ herdfile was, is recorded as `unmanaged`.
 
 ### Agent command
 
-`~/.config/herdfile/config.toml` (or `$XDG_CONFIG_HOME/herdfile/config.toml`):
+`~/.config/herdfile/config.toml` (or `$XDG_CONFIG_HOME/herdfile/config.toml`, or the
+path in `$HERDFILE_CONFIG`):
 
 ```toml
 [agent]

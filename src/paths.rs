@@ -16,8 +16,12 @@ pub fn state_dir() -> PathBuf {
     }
 }
 
-/// `$XDG_CONFIG_HOME/herdfile/config.toml`, defaulting to `~/.config/herdfile/config.toml`.
+/// `$HERDFILE_CONFIG`, else `$XDG_CONFIG_HOME/herdfile/config.toml`, defaulting to
+/// `~/.config/herdfile/config.toml`.
 pub fn config_file() -> PathBuf {
+    if let Some(path) = std::env::var_os("HERDFILE_CONFIG").filter(|v| !v.is_empty()) {
+        return PathBuf::from(path);
+    }
     let base = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir),
         None => home().join(".config"),
