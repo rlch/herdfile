@@ -53,5 +53,5 @@
 
 ## 8. Verify
 
-- [ ] 8.1 Integration tests against a throwaway herdr server, one per spec scenario
+- [x] 8.1 Integration tests against a throwaway herdr server, one per spec scenario
 - [ ] 8.2 Dogfood: adopt every open workspace, confirm nothing closes, then edit one file by hand
