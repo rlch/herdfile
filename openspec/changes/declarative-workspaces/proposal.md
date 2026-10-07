@@ -21,9 +21,14 @@ herdr match that file, and anything left out of the file gets closed.
 - Write-back: when the operator closes a pane by hand, the watcher removes it from the file instead
   of reopening it. When a pane is opened outside herdfile (by hand or by an agent calling herdr
   directly), the watcher adds it to the file marked `unmanaged`, so it is never closed automatically.
-- Out of this change (planned as follow-ups): writing back hand moves and reorders, the file of
-  workspaces above this one (worktree workspaces, a parent tree, messaging by name, a "needs you"
-  list), and rewriting existing launcher skills on top of it.
+- New file of workspaces, one level up: each entry is a workspace with a folder, an optional branch
+  (which becomes a herdr worktree), a purpose, a parent, and an optional agent to start in it.
+  Removing an entry removes the workspace once its agent is idle and its branch is merged.
+- `parent` gives a tree. An orchestrator reads it to know its children; status is read live.
+- Messaging by name: `herdfile tell <name> "..."` delivers a prompt to that workspace's agent.
+- One "needs you" list collects everything waiting on the operator, instead of many panes.
+- Out of this change (planned as follow-ups): writing back hand moves and reorders, and rewriting
+  existing launcher skills on top of herdfile.
 
 ## Capabilities
 
@@ -36,8 +41,12 @@ herdr match that file, and anything left out of the file gets closed.
 - `apply`: the watcher that makes herdr match the workspace file: open, close, move, the idle rule
   for agents, no focus, finding panes by label, and ignoring its own changes.
 - `adopt`: creating a workspace file from a live workspace.
-- `write-back`: recording the operator's hand closes and hand-opened shells into the file, and the
-  rule when a hand change and an agent edit collide.
+- `write-back`: recording the operator's hand closes, hand-opened panes, and dragged sizes into the
+  file, and the rule when a hand change and a command collide.
+- `workspaces-file`: the file of workspaces: entries, worktree creation, seeded agents, the parent
+  tree, and removal rules.
+- `messaging`: `tell` by name, including `tell parent`.
+- `needs-you`: the single list of things waiting on the operator.
 
 ### Modified Capabilities
 
@@ -45,10 +54,11 @@ None. This is a new repo.
 
 ## Impact
 
-- New repo `herdfile` (public, MIT). New binary and herdr integration (plugin or daemon, decided in
-  design).
+- New repo `herdfile` (public, MIT). One Rust binary, installed as a herdr plugin whose startup hook
+  runs a hidden watcher.
 - Depends on herdr's CLI and socket API: `api snapshot`, `events.subscribe`, pane labels,
-  `pane close`, `tab create`, `pane split`, `pane move`. Targets herdr 0.9.x.
+  `pane close`, `tab create`, `pane split`, `pane move`, `worktree create|remove`, `agent start`,
+  `agent prompt`. Targets herdr 0.9.x.
 - Repos that opt in add `.herdr/services.toml`. Nothing changes for repos that do not.
 - Agent instructions (for example a global CLAUDE.md) will later point agents at the workspace
   file instead of telling them to open tabs directly. That edit is not part of this change.

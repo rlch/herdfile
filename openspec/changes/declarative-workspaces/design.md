@@ -40,8 +40,6 @@ herdr facts this design relies on (checked against 0.8.0 source and the 0.9.3 bi
 **Non-Goals (this change):**
 
 - Writing back hand moves and reorders. Closes and hand-opened shells only.
-- The file of workspaces: worktree workspaces, the parent tree, messaging by name, the "needs you"
-  list. Planned as a second change.
 - Running services outside herdr (process-compose or similar).
 - Port allocation between workspaces.
 
@@ -237,6 +235,68 @@ find-or-create race that herdr itself does not guard against.
 Every create and split passes `--no-focus`. The watcher defers moves and reorders in the tab the
 operator is looking at until they leave it. Opens and closes there still happen.
 
+### The file of workspaces
+
+One file per herdr server, `$XDG_STATE_HOME/herdfile/workspaces.toml`, written only by herdfile
+commands, like the workspace files. Each key is a workspace name, which is also its herdr workspace
+label.
+
+```toml
+[land-prs]
+dir = "~/dev/schools-ts"
+purpose = "land the engineers' open PRs"
+parent = "orchestrator"
+
+[review-pr-312]
+dir = "~/dev/schools-ts"
+branch = "review-pr-312"          # becomes a herdr worktree
+purpose = "review PR 312"
+parent = "land-prs"
+agent = { brief = "briefs/review-312.md", model = "opus" }
+```
+
+```
+herdfile ws add review-pr-312 --dir ~/dev/schools-ts --branch review-pr-312 \
+  --parent land-prs --purpose "review PR 312" --brief briefs/review-312.md --model opus
+herdfile ws remove review-pr-312
+herdfile tree                       # names, purposes, parents, live agent status
+```
+
+Adding an entry with `branch` runs `herdr worktree create --no-focus` (never `git worktree add`),
+writes the new workspace's own workspace file with `[tab.main] row = ["agent"]`, and starts the
+agent with its brief. Without `branch`, the workspace opens on `dir`. The agent is started with a
+configurable launch command, so the tool works with any agent CLI.
+
+Removing an entry:
+
+- agent working or blocked: nothing happens yet; removal waits until it is idle.
+- agent idle and branch merged into its base: `herdr worktree remove`, workspace closed.
+- agent idle and branch has unmerged commits: nothing removed; an item goes on the "needs you" list.
+- no branch: the workspace is closed once idle. The folder is never deleted.
+
+`parent` names another entry or `operator`. Removing a parent does not remove its children; they are
+re-parented to the removed entry's parent. Status always comes live from herdr; the file stores no
+status.
+
+The same hand-change rule applies one level up. A workspace the operator closes by hand is removed
+from the file. A workspace created outside herdfile is added as `unmanaged` and never removed
+automatically. `herdfile adopt --all` writes entries for every open workspace as `unmanaged`.
+
+### Messaging by name
+
+`herdfile tell <name> "<text>"` sends the text to the named workspace's agent with
+`herdr agent prompt`, prefixed with the sender's name (`From land-prs: ...`). `tell parent` resolves
+through the tree. herdr refuses to prompt a blocked agent; herdfile then queues the message and
+delivers it when the agent leaves `blocked`, and puts the blocked agent on the "needs you" list.
+
+### The "needs you" list
+
+One list of things waiting on the operator, stored as `$XDG_STATE_HOME/herdfile/needs.jsonl` and
+shown with `herdfile needs`. Entries come from: an agent turning `blocked`, a removal held by
+unmerged commits, and `herdfile ask "<question>"` from any agent. An entry is cleared when its cause
+clears (the agent leaves `blocked`, the branch merges) or with `herdfile needs done <id>`. The file
+format is documented so other tools (a PR landing tool) can add entries.
+
 ## Risks / Trade-offs
 
 - [Event-matching misreads a hand change as the watcher's own, or the reverse] → match on
@@ -252,6 +312,10 @@ operator is looking at until they leave it. Opens and closes there still happen.
 - [The watcher dies and nobody notices, since it has no pane] → `herdfile status` reports whether it
   is running, and every herdfile command warns when it is not.
 - [Two workspaces start the same dev port] → out of scope. The second one fails loudly in its pane.
+- [A wrong `ws remove` destroys work] → a worktree is only removed when its agent is idle and its
+  branch is merged. Unmerged commits always stop removal and go to the operator.
+- [Messages arrive while an agent is mid-task] → agent CLIs queue typed input while working; blocked
+  agents get the message queued by herdfile instead.
 
 ## Migration Plan
 
@@ -261,4 +325,6 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Whether the file of workspaces ships in this change or the next.
+1. Agent launch command: how it is configured, and how the brief and model are passed.
+2. `tell`: fire and forget, or wait for the reply.
+3. How `dir` is written: a path, or a short repo name resolved from a configured list.

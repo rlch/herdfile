@@ -37,7 +37,20 @@
 - [ ] 5.5 Dragged sizes: on `layout_updated`, read ratios, round to 5%, write back if changed
 - [ ] 5.4 Collision rule: hand change wins, dropped edit is reported
 
-## 6. Verify
+## 6. Workspaces file
 
-- [ ] 6.1 Integration tests against a throwaway herdr server, one per spec scenario
-- [ ] 6.2 Dogfood: adopt every open workspace, confirm nothing closes, then edit one file by hand
+- [ ] 6.1 Parse and validate `workspaces.toml` (unique names, known parents, no cycles)
+- [ ] 6.2 `herdfile ws add`: `herdr worktree create --no-focus` or workspace on `dir`, write its workspace file, start the agent with the configured launch command
+- [ ] 6.3 `herdfile ws remove`: idle wait, merged check, `herdr worktree remove`, re-parent children
+- [ ] 6.4 `herdfile tree` with live status; workspace write-back; `adopt --all`
+
+## 7. Messaging and needs you
+
+- [ ] 7.1 `herdfile tell <name|parent>` via `herdr agent prompt`, sender prefix, queue for blocked agents
+- [ ] 7.2 `needs.jsonl` format (documented), `herdfile needs`, `needs done`, `ask`
+- [ ] 7.3 Add and clear entries on blocked, held removal, merge
+
+## 8. Verify
+
+- [ ] 8.1 Integration tests against a throwaway herdr server, one per spec scenario
+- [ ] 8.2 Dogfood: adopt every open workspace, confirm nothing closes, then edit one file by hand
