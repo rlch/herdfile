@@ -26,19 +26,18 @@ Events caused by the watcher's own operations MUST NOT be written back.
 - **THEN** the file is not changed by write-back
 
 ### Requirement: Hand changes win collisions
-When a hand change and a file edit touch the same pane before apply runs, the hand change SHALL
-win, and the edit SHALL be reported as dropped.
+When a hand change and a command touch the same pane before apply runs, the hand change SHALL
+win, and the command SHALL report that its change was dropped.
 
 #### Scenario: Close versus move
-- **WHEN** an agent moves `dev` to tab `main` in the file, and the operator closes `dev` before
+- **WHEN** an agent runs `herdfile place dev --tab main`, and the operator closes `dev` before
   apply runs
 - **THEN** `dev` is removed from the file, is not reopened, and the drop is reported
 
 ### Requirement: Write-back keeps the file's text
-Write-back SHALL change only the entries it must. Comments, key order, and formatting elsewhere in
-the file MUST be preserved.
+Write-back SHALL change only the entries it must. Key order and formatting elsewhere in the file MUST be
+preserved.
 
-#### Scenario: Comment survives a hand close
-- **WHEN** the file has `panes = ["agent", "test"]   # test on the right` and the operator closes
-  `test`
-- **THEN** the line becomes `panes = ["agent"]   # test on the right`
+#### Scenario: Hand close changes one line
+- **WHEN** the operator closes `test` in tab `main`
+- **THEN** only the `panes` line of `[tab.main]` changes

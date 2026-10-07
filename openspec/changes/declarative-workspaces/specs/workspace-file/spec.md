@@ -27,6 +27,24 @@ Each workspace file SHALL be stored at `$XDG_STATE_HOME/herdfile/<workspace-id>.
 - **WHEN** workspaces `w3` and `w7` both have cwd `~/dev`
 - **THEN** each has its own file
 
+### Requirement: Agents change the file through commands
+herdfile SHALL provide `place <name> [--tab <tab>] [--after <name>]`, `remove <name>`, and `show`.
+Each command SHALL take the workspace lock, edit the current file, and exit non-zero with the reason
+if the result would be invalid. `place` on a name already in the file SHALL move it.
+
+#### Scenario: Place a service
+- **WHEN** an agent runs `herdfile place dev --tab services`
+- **THEN** `dev` is added to the end of tab `services`, creating the tab if missing
+
+#### Scenario: Move by placing again
+- **WHEN** `dev` is in tab `services` and an agent runs `herdfile place dev --tab main`
+- **THEN** `dev` is removed from `services` and added to `main`
+
+#### Scenario: No lost update
+- **WHEN** the operator closes `dev` by hand and, a moment later, an agent runs
+  `herdfile place logs --after agent`
+- **THEN** the file has `logs` and does not have `dev`
+
 ### Requirement: Names are unique within a workspace
 A pane name MUST appear at most once in a workspace file.
 

@@ -110,13 +110,31 @@ it after a herdr restart.
 
 ### Rust, with comment-preserving TOML edits
 
-One Rust binary, `herdfile`. Write-back edits files that agents and the operator also edit, so it
-uses `toml_edit` to change only the affected entries and keep comments, order, and formatting.
+One Rust binary, `herdfile`. Commands and write-back use `toml_edit` to change only the affected
+entries, so the file stays stable and diffs stay small.
 Releases ship prebuilt binaries (macOS arm64/x86_64, Linux x86_64/arm64). The plugin's `[[build]]`
 downloads the matching release binary, falling back to `cargo install` from source.
 
 Rejected: Python. Its built-in `tomllib` only reads. Writing back without losing comments needs
 `tomlkit`, which is one more thing to install.
+
+### Only herdfile writes the workspace file
+
+Agents change the file through commands. Each takes the workspace lock, so it always edits the
+current file and never overwrites a write-back:
+
+```
+herdfile place dev --tab services     # add, or move if already placed
+herdfile place logs --after agent
+herdfile remove test
+herdfile show                         # print the file
+```
+
+Agents read the file freely. Nobody edits it by hand, the operator included. The watcher still
+applies a direct edit if one happens, but direct edits get no protection against lost updates.
+
+Rejected: agents editing the text. An agent that reads the file, then saves after a write-back,
+silently reopens what the operator just closed.
 
 ### Workspace files live in a state folder
 
@@ -153,8 +171,8 @@ close it. The pane is marked for removal and closed on its next transition to `i
 Events carry no originator. The watcher keeps a short list of the operations it just issued
 (create, close, move, rename, keyed by label and tab). Any event that matches one is its own. Any
 event that does not is a hand change (or an outside agent) and goes to write-back. If a hand change
-and a file edit hit the same pane in one cycle, the hand change wins and the agent that edited the
-file is told its edit was dropped.
+and a command hit the same pane before apply runs, the hand change wins and the command reports
+that its change was dropped.
 
 ### One writer at a time
 
@@ -189,8 +207,6 @@ file. Uninstalling herdfile leaves herdr as it is.
 
 ## Open Questions
 
-1. Who writes the workspace file: agents edit the text directly, or only through a command
-   (`herdfile place dev`), given the watcher writes it too.
-2. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
-3. How often agents may change the file.
-4. Whether the file of workspaces ships in this change or the next.
+1. Whether a left-to-right row per tab is enough, or nested splits and sizes are needed.
+2. How often agents may change the file.
+3. Whether the file of workspaces ships in this change or the next.

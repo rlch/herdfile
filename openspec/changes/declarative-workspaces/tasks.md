@@ -11,6 +11,7 @@
 - [ ] 2.1 Parse and validate `.herdr/services.toml` (required `cmd`, reserved `agent`, unknown keys rejected)
 - [ ] 2.2 Parse and validate the workspace file (unique names, known names, ownership marks)
 - [ ] 2.3 State-folder location and `herdfile path`
+- [ ] 2.4 `herdfile place`, `remove`, `show` under the workspace lock
 
 ## 3. Apply
 
