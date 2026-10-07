@@ -325,6 +325,9 @@ fn tell_parent_and_wait_for_reply() {
         out.contains("reply to: From land-prs: is it approved?"),
         "{out}"
     );
+    // Only the reply: no JSON, not the whole screen.
+    assert!(!out.contains("\"result\""), "{out}");
+    assert!(!out.contains("fake claude --model"), "{out}");
 
     // Unknown names list the known ones.
     let out = t.herdfile(Some(&parent), &["tell", "nobody", "hi"]);
@@ -448,4 +451,135 @@ fn outside_worktree_is_recorded_and_removed_once_landed() {
     t.eventually("entry dropped", || {
         !t.workspaces_file().contains("[outside]")
     });
+}
+
+#[test]
+fn tell_reaches_an_agent_herdfile_did_not_start() {
+    let mut t = TestServer::start();
+    decoy(&t);
+    let r = t.herdr(&[
+        "workspace",
+        "create",
+        "--label",
+        "elsewhere",
+        "--cwd",
+        "/tmp",
+        "--no-focus",
+    ]);
+    let pane = r["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    t.herdr(&["pane", "run", &pane, "claude"]);
+    t.eventually("agent detected", || {
+        t.snapshot()["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["pane_id"] == pane.as_str() && p["agent_status"] == "idle")
+    });
+    t.start_watcher();
+    t.eventually("recorded", || t.workspaces_file().contains("[elsewhere]"));
+    let out = t.ok(None, &["tell", "elsewhere", "hello there"]);
+    assert!(out.contains("sent to elsewhere"), "{out}");
+    t.eventually("delivered", || {
+        t.read_pane(&pane)
+            .contains("reply to: From operator: hello there")
+    });
+}
+
+#[test]
+fn ws_add_from_a_workspace_not_yet_recorded() {
+    let t = TestServer::start();
+    decoy(&t);
+    let r = t.herdr(&[
+        "workspace",
+        "create",
+        "--label",
+        "fresh",
+        "--cwd",
+        "/tmp",
+        "--no-focus",
+    ]);
+    let fresh = r["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let repo = t.repo();
+    // No watcher has seen `fresh` yet.
+    t.ok(
+        Some(&fresh),
+        &["ws", "add", "child", "--dir", repo.to_str().unwrap()],
+    );
+    let file = t.workspaces_file();
+    assert!(file.contains("[fresh]"), "{file}");
+    assert!(
+        file.contains("[child]\ndir") && file.contains("parent = \"fresh\""),
+        "{file}"
+    );
+}
+
+#[test]
+fn renamed_workspace_keeps_its_entry() {
+    let mut t = TestServer::start();
+    decoy(&t);
+    let r = t.repo();
+    let r = r.to_str().unwrap();
+    t.ok(
+        None,
+        &["ws", "add", "land", "--dir", r, "--purpose", "land PRs"],
+    );
+    t.ok(
+        None,
+        &["ws", "add", "review", "--dir", r, "--parent", "land"],
+    );
+    t.start_watcher();
+    t.settle();
+    let land = t.ws_id("land").unwrap();
+    t.herdr(&["workspace", "rename", &land, "landing"]);
+    t.eventually("rename written back", || {
+        t.workspaces_file().contains("[landing]")
+    });
+    let file = t.workspaces_file();
+    assert!(!file.contains("[land]"), "{file}");
+    assert!(file.contains("purpose = \"land PRs\""), "{file}");
+    assert!(file.contains("parent = \"landing\""), "{file}");
+    let landing = file.split("[review]").next().unwrap();
+    assert!(!landing.contains("unmanaged"), "{file}");
+}
+
+#[test]
+fn ws_add_opens_an_existing_branch() {
+    let t = TestServer::start();
+    decoy(&t);
+    let repo = t.git_repo();
+    let r = repo.to_str().unwrap();
+    // A branch fetched ahead of time, with no worktree.
+    t.git(&repo, &["branch", "pr-7"]);
+    let wt = t.dir.join("wt-pr-7");
+    t.ok(
+        None,
+        &[
+            "ws",
+            "add",
+            "pr-7",
+            "--dir",
+            r,
+            "--branch",
+            "pr-7",
+            "--path",
+            wt.to_str().unwrap(),
+        ],
+    );
+    let ws = t.ws_id("pr-7").unwrap();
+    assert!(wt.join(".git").exists());
+    assert_eq!(t.git(&wt, &["branch", "--show-current"]).trim(), "pr-7");
+    // Its workspace closes, the worktree stays; adding it again reopens it.
+    t.herdr(&["workspace", "close", &ws]);
+    t.eventually("closed", || t.ws_id("pr-7").is_none());
+    let _ = t.herdfile(None, &["ws", "remove", "pr-7"]);
+    t.ok(None, &["ws", "add", "pr-7", "--dir", r, "--branch", "pr-7"]);
+    let ws = t.ws_id("pr-7").expect("reopened");
+    let pane = t.pane(&ws, "agent").unwrap();
+    assert_eq!(pane["cwd"].as_str().unwrap(), wt.to_str().unwrap());
 }

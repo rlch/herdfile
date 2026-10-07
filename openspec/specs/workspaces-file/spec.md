@@ -15,7 +15,9 @@ workspace label. Each entry SHALL have `dir` and MAY have `branch`, `purpose`, `
 
 ### Requirement: Adding an entry opens the workspace
 `herdfile ws add` SHALL create the workspace through herdr with `--no-focus`. With `branch`, it
-SHALL use `herdr worktree create`. It SHALL write the workspace's own workspace file with
+SHALL use `herdr worktree create`, or `herdr worktree open` when the branch already exists (fetched
+ahead, or its workspace was closed). A parent that is open but not yet in the file SHALL be recorded
+on the spot. It SHALL write the workspace's own workspace file with
 `[tab.main] row = ["agent"]` and, if `agent` is given, start the agent and then send the brief as
 its first prompt once herdr reports it ready.
 
@@ -75,7 +77,8 @@ the removed entry's parent. A cycle MUST be rejected.
 - **THEN** `review-pr-312` gets `land-prs`'s parent
 
 ### Requirement: Hand changes to workspaces are written back
-A workspace the operator closes by hand SHALL be removed from the file. A workspace created outside
+A workspace the operator closes by hand SHALL be removed from the file; one renamed by hand SHALL
+keep its entry under the new name, with its children following. A workspace created outside
 herdfile SHALL be added as `unmanaged` and never removed automatically. The first time the watcher
 sees an open workspace in scope that the file does not list, it SHALL add it as `unmanaged` without
 closing anything.

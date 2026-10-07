@@ -144,9 +144,11 @@ herdfile tree                     # names, purposes, parents, live agent status
 ```
 
 `ws add` creates the workspace with `herdr worktree create --no-focus` (with
-`--branch`) or `workspace create`, writes its workspace file with the agent in
+`--branch`; `worktree open` when the branch already exists, e.g. fetched ahead or
+left by a closed workspace) or `workspace create`, writes its workspace file with the agent in
 tab `main`, starts the agent named after the workspace, waits for it, and sends
-`Read <brief> and follow it.` `--parent` defaults to the calling workspace.
+`Read <brief> and follow it.` `--parent` defaults to the calling workspace,
+recorded on the spot if the watcher has not seen it yet.
 
 `ws remove` waits for the agent to be idle. A worktree, including one opened
 outside herdfile, goes (`herdr worktree remove`) only once its branch (or its
@@ -187,8 +189,9 @@ herdfile needs done <id>
 ```
 
 `tell` is `herdr agent prompt` with `From <your workspace>: ` in front and
-`parent` resolved through the tree. `--wait`, `--until`, and `--timeout` pass
-through; with `--wait` the reply is printed from `herdr agent read`. herdr's
+`parent` resolved through the tree. It reaches the workspace's agent by its pane,
+so agents herdfile did not start are reachable too. `--wait`, `--until`, and
+`--timeout` pass through; with `--wait` only the agent's reply is printed. herdr's
 errors pass through unchanged: a blocked agent refuses with `agent_blocked`.
 
 ### `needs.jsonl`

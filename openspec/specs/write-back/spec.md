@@ -42,7 +42,10 @@ any pane.
 
 ### Requirement: Tab renames are written back
 When a tab is renamed by something other than the watcher, the watcher SHALL rename that tab in the
-file, keeping its place and contents, and MUST NOT move panes to restore the old name.
+file, keeping its place and contents, and MUST NOT move panes to restore the old name. The watcher
+MUST NOT rename a tab whose title was set by someone else: it only fixes a tab still on herdr's
+default (numeric) name, and tells two tabs with the same title apart by a name kept in its own
+files.
 
 #### Scenario: An agent titles its tab
 - **WHEN** a tab listed as `[tab.1]` is renamed to `my title` outside herdfile

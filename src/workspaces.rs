@@ -246,6 +246,38 @@ impl WorkspacesFile {
         paths::write_atomic(&self.path, &self.doc.to_string())?;
         Ok(())
     }
+
+    /// Rename an entry in place; children follow.
+    pub fn rename(&mut self, old: &str, new: &str) -> bool {
+        if self.get(old).is_none() || self.get(new).is_some() {
+            return false;
+        }
+        let mut rebuilt = DocumentMut::new();
+        for (key, item) in self.doc.iter() {
+            rebuilt.insert(if key == old { new } else { key }, item.clone());
+        }
+        self.doc = rebuilt;
+        for e in &mut self.entries {
+            if e.name == old {
+                e.name = new.to_string();
+            }
+        }
+        let children: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|e| e.parent.as_deref() == Some(old))
+            .map(|e| e.name.clone())
+            .collect();
+        for child in children {
+            if let Some(t) = self.doc.get_mut(&child).and_then(Item::as_table_mut) {
+                t.insert("parent", toml_edit::value(new));
+            }
+            if let Some(e) = self.entries.iter_mut().find(|e| e.name == child) {
+                e.parent = Some(new.to_string());
+            }
+        }
+        true
+    }
 }
 
 /// Lock, load, change, save the file of workspaces.
@@ -261,6 +293,24 @@ pub fn edit<T>(f: impl FnOnce(&mut WorkspacesFile) -> Result<T>) -> Result<T> {
         file.save()?;
     }
     Ok(out)
+}
+
+/// An `unmanaged` entry for an open workspace herdfile did not open. A
+/// linked worktree is recorded by its repo and branch.
+fn entry_for_live(snap: &Snapshot, ws: &str, label: &str) -> Entry {
+    let wt = snap.workspace(ws).and_then(|w| w.linked_worktree());
+    let dir = wt
+        .and_then(|w| w.repo_root.clone())
+        .or_else(|| snap.panes_of(ws).find_map(|p| p.cwd.clone()))
+        .unwrap_or_else(|| "~".into());
+    let branch = wt.and_then(|w| current_branch(Path::new(&w.checkout_path)));
+    Entry {
+        name: label.to_string(),
+        dir,
+        branch,
+        unmanaged: true,
+        ..Entry::default()
+    }
 }
 
 /// The calling workspace's name: its herdr label.
@@ -444,10 +494,15 @@ pub fn add_with(backend: &dyn Backend, args: AddArgs) -> Result<()> {
             bail!("a herdr workspace is already labelled `{}`", args.name);
         }
         if parent != OPERATOR && file.get(&parent).is_none() {
-            bail!(
-                "parent `{parent}` is not in the file (known: {})",
-                file.names().join(", ")
-            );
+            // Open but not recorded yet (opened or renamed a moment ago):
+            // record it now rather than make the caller wait for the watcher.
+            match snap.workspace_by_label(&parent) {
+                Some(w) => file.add(entry_for_live(&snap, &w.workspace_id, &parent)),
+                None => bail!(
+                    "parent `{parent}` is neither in the file nor open (known: {})",
+                    file.names().join(", ")
+                ),
+            }
         }
         file.add(entry.clone());
         Ok(())
@@ -496,7 +551,21 @@ fn create(backend: &dyn Backend, args: &AddArgs) -> Result<(String, String, Stri
     let dir_s = dir.to_string_lossy().into_owned();
     let (ws, tab, pane, folder) = match &args.branch {
         Some(branch) => {
-            let mut cli = vec![
+            // A branch that already exists (fetched, or its workspace was
+            // closed) is opened; a new one is created.
+            let exists = Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args([
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{branch}"),
+                ])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            let mut make = vec![
                 "worktree",
                 "create",
                 "--cwd",
@@ -508,24 +577,42 @@ fn create(backend: &dyn Backend, args: &AddArgs) -> Result<(String, String, Stri
                 "--no-focus",
             ];
             if let Some(base) = &args.base {
-                cli.extend(["--base", base]);
+                make.extend(["--base", base]);
             }
             if let Some(path) = &args.path {
-                cli.extend(["--path", path]);
+                make.extend(["--path", path]);
             }
-            let r = cli_json(backend, &cli)?;
+            let r = if exists {
+                // `open` finds the branch's worktree; with none, create one.
+                let open = [
+                    "worktree",
+                    "open",
+                    "--cwd",
+                    &dir_s,
+                    "--branch",
+                    branch,
+                    "--label",
+                    &args.name,
+                    "--no-focus",
+                ];
+                cli_json(backend, &open).or_else(|_| cli_json(backend, &make))?
+            } else {
+                cli_json(backend, &make)?
+            };
             let r = &r["result"];
             let get = |p: &str| {
                 r.pointer(p)
                     .and_then(Value::as_str)
                     .map(str::to_string)
-                    .ok_or_else(|| anyhow!("herdr worktree create: reply has no {p}"))
+                    .ok_or_else(|| anyhow!("herdr worktree: reply has no {p}"))
             };
             (
                 get("/workspace/workspace_id")?,
                 get("/tab/tab_id")?,
                 get("/root_pane/pane_id")?,
-                get("/worktree/path").or_else(|_| get("/root_pane/cwd"))?,
+                get("/worktree/path")
+                    .or_else(|_| get("/workspace/worktree/checkout_path"))
+                    .or_else(|_| get("/root_pane/cwd"))?,
             )
         }
         None => {
@@ -827,9 +914,18 @@ pub fn render_tree(file: &WorkspacesFile, snap: &Snapshot) -> String {
 #[derive(Debug, Default)]
 pub struct FleetState {
     pub dirty: bool,
-    /// Names seen open while in the file; persisted beside the file.
-    known: Option<HashSet<String>>,
+    /// What was seen, persisted beside the file.
+    seen: Option<Seen>,
     last_removal_check: Option<std::time::Instant>,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct Seen {
+    /// Names seen open while in the file.
+    known: HashSet<String>,
+    /// Each open workspace's name by id, to tell a rename from a close.
+    #[serde(default)]
+    ids: BTreeMap<String, String>,
 }
 
 fn known_path() -> PathBuf {
@@ -848,27 +944,39 @@ pub fn tick(backend: &dyn Backend, state: &mut FleetState, scope: &[String]) -> 
         return Ok(());
     }
     state.dirty = false;
-    let known = state.known.get_or_insert_with(|| {
+    let seen = state.seen.get_or_insert_with(|| {
         std::fs::read_to_string(known_path())
             .ok()
-            .and_then(|t| serde_json::from_str::<Vec<String>>(&t).ok())
-            .map(|v| v.into_iter().collect())
+            .and_then(|t| serde_json::from_str::<Seen>(&t).ok())
             .unwrap_or_default()
     });
     let snap = backend.snapshot()?;
-    let live: BTreeMap<String, String> = snap
+    // By label; with two workspaces on one label, the first one holds it.
+    let mut live: BTreeMap<String, String> = BTreeMap::new();
+    let mut ordered: Vec<_> = snap
         .workspaces
         .iter()
         .filter(|w| in_scope(scope, w.label.as_deref().unwrap_or("")))
-        .map(|w| {
-            (
-                w.label.clone().unwrap_or_else(|| w.workspace_id.clone()),
-                w.workspace_id.clone(),
-            )
-        })
         .collect();
+    ordered.sort_by_key(|w| w.workspace_id.clone());
+    for w in &ordered {
+        let label = w.label.clone().unwrap_or_else(|| w.workspace_id.clone());
+        live.entry(label).or_insert_with(|| w.workspace_id.clone());
+    }
     let mut log_lines = Vec::new();
+    let known = &mut seen.known;
+    let ids = &mut seen.ids;
     let removing: Vec<String> = edit(|file| {
+        // Renamed by hand: the entry follows, keeping its parent and purpose.
+        for (label, ws) in &live {
+            if let Some(old) = ids.get(ws).cloned() {
+                if &old != label && !live.contains_key(&old) && file.rename(&old, label) {
+                    known.remove(&old);
+                    known.insert(label.clone());
+                    log_lines.push(format!("workspace {old} renamed to {label} by hand"));
+                }
+            }
+        }
         for e in file.entries.clone() {
             let open = live.contains_key(&e.name);
             if open {
@@ -885,20 +993,7 @@ pub fn tick(backend: &dyn Backend, state: &mut FleetState, scope: &[String]) -> 
         }
         for (label, ws) in &live {
             if file.get(label).is_none() && !known.contains(label) {
-                // A linked worktree is recorded by its repo and branch.
-                let wt = snap.workspace(ws).and_then(|w| w.linked_worktree());
-                let dir = wt
-                    .and_then(|w| w.repo_root.clone())
-                    .or_else(|| snap.panes_of(ws).find_map(|p| p.cwd.clone()))
-                    .unwrap_or_else(|| "~".into());
-                let branch = wt.and_then(|w| current_branch(Path::new(&w.checkout_path)));
-                file.add(Entry {
-                    name: label.clone(),
-                    dir,
-                    branch,
-                    unmanaged: true,
-                    ..Entry::default()
-                });
+                file.add(entry_for_live(&snap, ws, label));
                 known.insert(label.clone());
                 log_lines.push(format!(
                     "workspace {label} opened outside herdfile; recorded as unmanaged"
@@ -912,10 +1007,11 @@ pub fn tick(backend: &dyn Backend, state: &mut FleetState, scope: &[String]) -> 
             .map(|e| e.name.clone())
             .collect())
     })?;
-    let _ = paths::write_atomic(
-        &known_path(),
-        &serde_json::to_string(&known.iter().collect::<Vec<_>>())?,
-    );
+    *ids = live
+        .iter()
+        .map(|(label, ws)| (ws.clone(), label.clone()))
+        .collect();
+    let _ = paths::write_atomic(&known_path(), &serde_json::to_string(&seen)?);
     for line in log_lines {
         crate::watch::log(&line);
     }

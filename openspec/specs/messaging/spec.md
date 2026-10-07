@@ -16,11 +16,18 @@ starts a workspace's agent, it SHALL give it the workspace's name as its herdr a
 - **THEN** it fails, quoting the allowed pattern
 
 ### Requirement: Tell by name
-`herdfile tell <name> "<text>"` SHALL call `herdr agent prompt` on the named agent with the text
-prefixed `From <sender>: `, where the sender is the calling workspace's name. `parent` SHALL resolve
-to the caller's parent. `--wait`, `--until`, and `--timeout` SHALL pass through to herdr. With
-`--wait`, it SHALL print the reply read with `herdr agent read --source recent-unwrapped`. herdr's
+`herdfile tell <name> "<text>"` SHALL call `herdr agent prompt` on the agent in the workspace named
+`<name>` (its `agent` pane, else its first agent pane, addressed by pane id so agents herdfile did
+not start are reached too), with the text prefixed `From <sender>: `, where the sender is the
+calling workspace's name. `parent` SHALL resolve to the caller's parent. `--wait`, `--until`, and
+`--timeout` SHALL pass through to herdr. With `--wait`, it SHALL print only the reply: what the
+agent wrote after the message, read with `herdr agent read --source recent-unwrapped`. herdr's
 errors SHALL pass through unchanged.
+
+#### Scenario: Agent herdfile did not start
+- **WHEN** a workspace opened by hand runs an agent with no herdr agent name, and the operator runs
+  `herdfile tell <its name> "hello"`
+- **THEN** that agent receives `From operator: hello`
 
 #### Scenario: Child reports to parent
 - **WHEN** the agent in `review-pr-312` runs `herdfile tell parent "approved, ready to merge"`
