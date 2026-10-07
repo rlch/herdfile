@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Result};
 use toml_edit::{DocumentMut, Item, Table, TomlError, Value};
 
-use crate::layout::{parse_container, Container, Dir, Leaf, Mark};
+use crate::layout::{parse_container, Container, Dir, Leaf, Mark, Node};
 use crate::services::{Services, RESERVED};
 
 #[derive(Debug, Clone)]
@@ -180,6 +180,14 @@ impl WorkspaceFile {
 
     /// Write one tab's tree back into the document, touching only that tab.
     fn sync_tab(&mut self, name: &str) {
+        // `row = [{ column = [...] }]` reads as `column = [...]`.
+        if let Some(tab) = self.tabs.iter_mut().find(|t| t.name == name) {
+            while let [Node::Box(inner)] = tab.tree.children.as_slice() {
+                let mut inner = inner.clone();
+                inner.size = None;
+                tab.tree = inner;
+            }
+        }
         let tree = self
             .tabs
             .iter()
@@ -445,6 +453,13 @@ mod tests {
             .collect();
         assert_eq!(changed.len(), 1, "{out}");
         assert!(out.contains("row = [\"agent\"]  # keep"), "{out}");
+    }
+
+    #[test]
+    fn single_nested_container_is_hoisted() {
+        let mut f = file("[tab.main]\nrow = [\"a\", { column = [\"b\", \"c\"] }]\n").unwrap();
+        f.remove("a").unwrap();
+        assert_eq!(f.to_text(), "[tab.main]\ncolumn = [\"b\", \"c\"]\n");
     }
 
     #[test]
