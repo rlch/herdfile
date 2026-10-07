@@ -87,3 +87,22 @@ closing anything.
 - **WHEN** the operator closes workspace `review-pr-312` by hand
 - **THEN** its entry is removed and nothing reopens it
 
+### Requirement: An agent can hand off to a fresh one in place
+`herdfile handoff --brief <file> [--model <m>]`, run by an agent in its pane, SHALL start a successor
+in a pane split from the caller's, give it the workspace's herdr agent name, send it the brief once
+it is ready, give it the caller's label, and then close the caller's pane, all while holding the
+workspace lock so the watcher sees no half-done state. If the successor does not start, nothing SHALL
+be handed off and the caller SHALL keep its pane and name. A pane not running an agent MUST be
+refused.
+
+#### Scenario: Hand off in place
+- **WHEN** the agent in workspace `solo` (tab `main`: `dev`, `agent`, `test`) runs
+  `herdfile handoff --brief next.md`
+- **THEN** a new agent named `solo` sits where the old one was, between `dev` and `test`, with the
+  same sizes, has been told `Read next.md and follow it.`, and the old pane is closed
+
+#### Scenario: Successor fails to start
+- **WHEN** the configured agent cannot start
+- **THEN** the old agent keeps its pane, label, and name, and the command fails saying nothing was
+  handed off
+

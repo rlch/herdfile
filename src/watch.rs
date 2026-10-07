@@ -25,6 +25,8 @@ const FILE_POLL: Duration = Duration::from_millis(400);
 const STATUS_POLL: Duration = Duration::from_secs(1);
 /// How long to wait for herdr to come back before giving up.
 const HERDR_GONE: Duration = Duration::from_secs(60);
+/// When a workspace is locked by a command, how soon to try again.
+const LOCKED_RETRY: Duration = Duration::from_millis(300);
 /// How long a pass's report waits for a command to hand it to.
 const UNDELIVERED_FOR: Duration = Duration::from_secs(5);
 /// Passes in a row that change herdr with no outside trigger before the
@@ -481,8 +483,17 @@ impl Watcher {
                 return;
             }
         }
-        let lock = match FileLock::acquire(&paths::lock_for(&path)) {
-            Ok(l) => l,
+        // A command holds the workspace (a handoff starting an agent can take
+        // a while): come back shortly rather than stall every workspace.
+        let lock = match FileLock::try_acquire(&paths::lock_for(&path)) {
+            Ok(Some(l)) => l,
+            Ok(None) => {
+                if !waiters.is_empty() {
+                    self.waiting.insert(ws.to_string(), waiters);
+                }
+                self.mark(ws, LOCKED_RETRY, external);
+                return;
+            }
             Err(e) => {
                 log(&format!("{ws}: cannot lock: {e}"));
                 return;

@@ -17,6 +17,13 @@ fn main() {
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         report("working");
+        // `!<command>` runs a shell command from inside this pane, as an
+        // agent's tool call would.
+        if let Some(cmd) = line.trim_start().strip_prefix('!') {
+            let _ = Command::new("/bin/sh").args(["-c", cmd]).status();
+            report("idle");
+            continue;
+        }
         std::thread::sleep(std::time::Duration::from_millis(500));
         println!("reply to: {line}");
         report("idle");

@@ -7,6 +7,7 @@
 mod apply;
 mod commands;
 mod first_sight;
+mod handoff;
 mod harness;
 mod plan;
 mod watcher;

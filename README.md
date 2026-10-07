@@ -150,6 +150,12 @@ tab `main`, starts the agent named after the workspace, waits for it, and sends
 `Read <brief> and follow it.` `--parent` defaults to the calling workspace,
 recorded on the spot if the watcher has not seen it yet.
 
+An agent hands off to a fresh one in its place with
+`herdfile handoff --brief next.md [--model opus]`: the successor starts in a pane
+split from the caller's, takes the workspace's agent name and the `agent` label
+once it has its brief, and the caller's pane closes last. If the successor does
+not start, nothing changes.
+
 `ws remove` waits for the agent to be idle. A worktree, including one opened
 outside herdfile, goes (`herdr worktree remove`) only once its branch (or its
 commit, when detached) is merged into its base, squash merges included;

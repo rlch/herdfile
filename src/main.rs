@@ -4,6 +4,7 @@ mod apply;
 mod backend;
 mod commands;
 mod control;
+mod handoff;
 mod layout;
 mod live;
 mod lock;
@@ -124,6 +125,19 @@ enum Cmd {
     Apply {
         #[command(flatten)]
         ws: WsArg,
+    },
+    /// Replace this agent with a fresh one in the same place: the successor
+    /// starts, gets the brief, takes the agent's name, and this pane closes
+    Handoff {
+        /// A file the successor is told to read and follow
+        #[arg(long)]
+        brief: String,
+        /// Fills {model} in the configured agent command
+        #[arg(long)]
+        model: Option<String>,
+        /// The pane to replace (default: this one, $HERDR_PANE_ID)
+        #[arg(long)]
+        pane: Option<String>,
     },
     /// Show what the watcher would do to each workspace in scope, changing nothing
     Plan {
@@ -283,6 +297,9 @@ fn run(cmd: Cmd) -> anyhow::Result<()> {
         ),
         Cmd::Apply { ws } => commands::apply_now(&resolve_workspace(ws.workspace)?),
         Cmd::Plan { workspace } => plan::plan(workspace),
+        Cmd::Handoff { brief, model, pane } => {
+            handoff::handoff(handoff::HandoffArgs { pane, brief, model })
+        }
         Cmd::Ws(WsCmd::Add {
             name,
             dir,

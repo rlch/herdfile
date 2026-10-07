@@ -628,7 +628,14 @@ fn create(backend: &dyn Backend, args: &AddArgs) -> Result<(String, String, Stri
     Ok((ws, pane, folder))
 }
 
-fn start_agent(backend: &dyn Backend, name: &str, pane: &str, model: Option<&str>) -> Result<()> {
+/// Start the configured agent in `pane` under herdr agent name `name`, and
+/// return once herdr reports it ready.
+pub(crate) fn start_agent(
+    backend: &dyn Backend,
+    name: &str,
+    pane: &str,
+    model: Option<&str>,
+) -> Result<()> {
     let cfg = load_config()?;
     match &cfg.command {
         None => {
@@ -674,7 +681,7 @@ fn start_agent(backend: &dyn Backend, name: &str, pane: &str, model: Option<&str
     Ok(())
 }
 
-fn prompt(backend: &dyn Backend, name: &str, text: &str) -> Result<()> {
+pub(crate) fn prompt(backend: &dyn Backend, name: &str, text: &str) -> Result<()> {
     let (code, _, err) = backend.cli(&["agent", "prompt", name, text])?;
     if code != 0 {
         bail!("herdr agent prompt: {}", err.trim());
