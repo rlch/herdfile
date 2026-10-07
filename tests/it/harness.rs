@@ -85,11 +85,13 @@ impl Drop for Permit {
 fn spawn_watchdog(dir: &Path) -> Child {
     let script = format!(
         r#"while kill -0 {parent} 2>/dev/null; do sleep 1; done
-herdr session stop {SESSION} >/dev/null 2>&1
+for s in '{dir}'/herdr/sessions/*/; do herdr session stop "$(basename "$s")" >/dev/null 2>&1; done
+for l in '{dir}'/state/herdfile/sessions/*/watch.lock; do
+  p=$(cat "$l" 2>/dev/null)
+  if [ -n "$p" ] && ps -p "$p" -o command= 2>/dev/null | grep -q 'herdfile watch'; then kill "$p"; fi
+done
 s=$(cat '{dir}/server.pid' 2>/dev/null)
 if [ -n "$s" ] && ps -p "$s" -o command= 2>/dev/null | grep -q -- '--session {SESSION} server'; then kill "$s"; fi
-w=$(cat '{dir}/state/herdfile/watch.lock' 2>/dev/null)
-if [ -n "$w" ] && ps -p "$w" -o command= 2>/dev/null | grep -q 'herdfile watch'; then kill "$w"; fi
 sleep 1
 rm -rf '{dir}'"#,
         parent = std::process::id(),
@@ -360,7 +362,7 @@ impl TestServer {
     }
 
     pub fn state(&self) -> PathBuf {
-        self.dir.join("state/herdfile")
+        self.dir.join("state/herdfile/sessions").join(SESSION)
     }
 
     pub fn repo(&self) -> PathBuf {
@@ -559,10 +561,20 @@ impl Drop for TestServer {
         let _ = self.watchdog.kill();
         let _ = self.watchdog.wait();
         self.stop_watcher();
-        let mut stop = Command::new("herdr");
-        stop.args(["session", "stop", SESSION]);
-        Self::scrub(&mut stop, &self.dir);
-        let _ = stop.stdout(Stdio::null()).stderr(Stdio::null()).status();
+        // Every session in this test's folder, not just the main one.
+        let sessions = std::fs::read_dir(self.dir.join("herdr/sessions"))
+            .map(|d| {
+                d.filter_map(|e| e.ok())
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for name in sessions {
+            let mut stop = Command::new("herdr");
+            stop.args(["session", "stop", &name]);
+            Self::scrub(&mut stop, &self.dir);
+            let _ = stop.stdout(Stdio::null()).stderr(Stdio::null()).status();
+        }
         // Only our own child: never the operator's server.
         let _ = self.server.kill();
         let _ = self.server.wait();

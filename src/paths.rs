@@ -9,11 +9,31 @@ fn home() -> PathBuf {
 }
 
 /// `$XDG_STATE_HOME/herdfile`, defaulting to `~/.local/state/herdfile`.
-pub fn state_dir() -> PathBuf {
+fn state_base() -> PathBuf {
     match std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir).join("herdfile"),
         None => home().join(".local/state/herdfile"),
     }
+}
+
+/// herdfile's state for the herdr server it talks to. The default server
+/// uses `$XDG_STATE_HOME/herdfile` itself; a named session
+/// (`herdr --session <name>`) gets `sessions/<name>` inside it, so a second
+/// server shares no files and no watcher lock with the first.
+pub fn state_dir() -> PathBuf {
+    let base = state_base();
+    match session_of(&crate::backend::herdr::default_socket()) {
+        Some(name) => base.join("sessions").join(name),
+        None => base,
+    }
+}
+
+/// The session a herdr socket belongs to: `…/sessions/<name>/herdr.sock`.
+pub fn session_of(socket: &Path) -> Option<String> {
+    let dir = socket.parent()?;
+    let name = dir.file_name()?.to_str()?;
+    let parent = dir.parent()?.file_name()?.to_str()?;
+    (parent == "sessions" && !name.is_empty()).then(|| name.to_string())
 }
 
 /// `$HERDFILE_CONFIG`, else `$XDG_CONFIG_HOME/herdfile/config.toml`, defaulting to
@@ -104,6 +124,17 @@ mod tests {
             lock_for(Path::new("/s/w1.toml")),
             PathBuf::from("/s/w1.toml.lock")
         );
+    }
+
+    #[test]
+    fn each_session_has_its_own_state() {
+        let h = Path::new("/h/.config/herdr");
+        assert_eq!(session_of(&h.join("herdr.sock")), None);
+        assert_eq!(
+            session_of(&h.join("sessions/try/herdr.sock")).as_deref(),
+            Some("try")
+        );
+        assert_eq!(session_of(Path::new("/tmp/custom.sock")), None);
     }
 
     #[test]

@@ -21,12 +21,18 @@ repo's services file, `agent`, or a pane marked `mine` or `unmanaged`.
 
 ### Requirement: Workspace files live in the state folder
 Each workspace file SHALL be stored at `$XDG_STATE_HOME/herdfile/<workspace-id>.toml`, defaulting to
-`~/.local/state/herdfile/<workspace-id>.toml`. `herdfile path` SHALL print the file for
+`~/.local/state/herdfile/<workspace-id>.toml`; for a named herdr session, under
+`sessions/<name>/` there. `herdfile path` SHALL print the file for
 `$HERDR_WORKSPACE_ID`, or for a workspace given as an argument.
 
 #### Scenario: Agent finds its file
 - **WHEN** an agent in workspace `w3` runs `herdfile path`
 - **THEN** it prints `~/.local/state/herdfile/w3.toml` (expanded)
+
+#### Scenario: A second herdr server
+- **WHEN** herdfile runs against a named session (`herdr --session try`)
+- **THEN** its files, lock, and watcher live under `$XDG_STATE_HOME/herdfile/sessions/try/`, apart
+  from the main server's
 
 #### Scenario: Two workspaces on one folder
 - **WHEN** workspaces `w3` and `w7` both have cwd `~/dev`

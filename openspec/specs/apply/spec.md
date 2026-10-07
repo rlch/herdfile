@@ -127,9 +127,9 @@ config file, defaulting to `["*"]` (all). A trailing `*` SHALL match a label pre
 NOT label, record, or change anything in a workspace outside that scope.
 
 #### Scenario: Narrow scope
-- **WHEN** the config has `[watch] workspaces = ["hf-dogfood"]` and workspaces `hf-dogfood` and
+- **WHEN** the config has `[watch] workspaces = ["review-*"]` and workspaces `review-pr-312` and
   `land-prs` are open
-- **THEN** only `hf-dogfood` gets a file, and no pane of `land-prs` is renamed
+- **THEN** only `review-pr-312` gets a file, and no pane of `land-prs` is renamed
 
 ### Requirement: Plan shows a pass without making it
 `herdfile plan [<workspace>]` SHALL print, for each workspace in scope, what the next pass would do

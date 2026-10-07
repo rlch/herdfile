@@ -23,20 +23,34 @@ plugin folder (or builds it with `cargo install` when there is none). Its
 startup hook runs `herdfile watch --detach`: a background watcher with no pane,
 one per herdr server, behind a lock. `herdfile status` says whether it is
 running; every command warns when it is not. It logs to
-`$XDG_STATE_HOME/herdfile/watch.log` (default `~/.local/state/herdfile/`).
+`$XDG_STATE_HOME/herdfile/watch.log` (default `~/.local/state/herdfile/`). Each
+herdr server has its own state: a named session (`herdr --session <name>`) keeps
+its files, lock and watcher under `sessions/<name>/` there, apart from your main
+one.
 
-Which workspaces the watcher manages is a setting (default: all). To try it on
-one workspace first, set this before installing, then widen it:
+Which workspaces the watcher manages is a setting (default: all):
 
 ```toml
 # ~/.config/herdfile/config.toml
 [watch]
-workspaces = ["hf-dogfood"]       # labels; a trailing * matches a prefix; "*" is all
+workspaces = ["*"]                # labels; a trailing * matches a prefix
 ```
 
-Before widening the scope, `herdfile plan` prints what the watcher would do to
-each workspace in scope (labels, recorded panes, and any open, close, move or
-resize) without changing anything.
+`herdfile plan` prints what the watcher would do to each workspace in scope
+(labels, recorded panes, and any open, close, move or resize) without changing
+anything.
+
+### Trying it out
+
+Never try herdfile, or anything else, on the herdr server you work in: no
+throwaway workspaces, panes or agents there. Start a separate server instead:
+
+```sh
+herdr --session herdfile-try
+```
+
+In its panes, `herdfile` talks to that server and keeps its own state, and the
+plugin starts a watcher for it alone. Your own sessions are not touched.
 
 To put `herdfile` itself on your PATH: `cargo install --git https://github.com/rlch/herdfile`.
 
@@ -229,7 +243,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Unit tests sit beside the code and need nothing running; several read a real
+Tests never touch your herdr server. Unit tests sit beside the code and need
+nothing running; several read a real
 herdr snapshot from `tests/fixtures/snapshot.json`. Integration tests are one
 crate, `tests/it/`, and each starts its own herdr server: a named session under
 a fresh `XDG_CONFIG_HOME` in `/tmp`, never your running one (the harness refuses
