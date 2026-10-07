@@ -622,7 +622,7 @@ pub enum Removal {
 }
 
 /// The branch's changes are already in its base (merged or squash-merged).
-pub fn merged(dir: &Path, branch: &str, base: Option<&str>) -> Result<bool> {
+pub fn merged(dir: &Path, rev: &str, base: Option<&str>) -> Result<bool> {
     let git = |args: &[&str]| -> Result<(bool, String)> {
         let out = Command::new("git").arg("-C").arg(dir).args(args).output()?;
         Ok((
@@ -634,7 +634,7 @@ pub fn merged(dir: &Path, branch: &str, base: Option<&str>) -> Result<bool> {
         "rev-parse",
         "--verify",
         "--quiet",
-        &format!("refs/heads/{branch}"),
+        &format!("{rev}^{{commit}}"),
     ])?
     .0
     {
@@ -654,11 +654,11 @@ pub fn merged(dir: &Path, branch: &str, base: Option<&str>) -> Result<bool> {
             }
         }
     };
-    if git(&["merge-base", "--is-ancestor", branch, &base])?.0 {
+    if git(&["merge-base", "--is-ancestor", rev, &base])?.0 {
         return Ok(true);
     }
     // Squash merges: merging the branch into the base changes nothing.
-    let (ok, merged_tree) = git(&["merge-tree", "--write-tree", &base, branch])?;
+    let (ok, merged_tree) = git(&["merge-tree", "--write-tree", &base, rev])?;
     let (_, base_tree) = git(&["rev-parse", &format!("{base}^{{tree}}")])?;
     Ok(ok && merged_tree.lines().next() == Some(base_tree.as_str()))
 }
@@ -684,11 +684,29 @@ pub fn finish_removal(backend: &dyn Backend, name: &str) -> Result<Removal> {
             busy.label.as_deref().unwrap_or(&busy.pane_id)
         )));
     }
-    match &entry.branch {
-        Some(branch) => {
-            let dir = paths::expand_tilde(&entry.dir);
-            if !merged(&dir, branch, entry.base.as_deref())? {
-                let reason = format!("branch `{branch}` has unmerged commits; not removed");
+    // A linked worktree, whoever opened it, goes through herdr once what it
+    // holds has landed: its branch, or its commit when detached.
+    let checkout = snap
+        .workspace(&ws)
+        .and_then(|w| w.linked_worktree())
+        .map(|w| PathBuf::from(&w.checkout_path));
+    let worktree = match (&checkout, &entry.branch) {
+        (Some(path), _) => Some((
+            path.clone(),
+            entry.branch.clone().or_else(|| current_branch(path)),
+        )),
+        (None, Some(branch)) => Some((paths::expand_tilde(&entry.dir), Some(branch.clone()))),
+        (None, None) => None,
+    };
+    match worktree {
+        Some((dir, branch)) => {
+            let rev = branch.clone().unwrap_or_else(|| "HEAD".into());
+            let what = match &branch {
+                Some(b) => format!("branch `{b}`"),
+                None => "its detached commit".into(),
+            };
+            if !merged(&dir, &rev, entry.base.as_deref())? {
+                let reason = format!("{what} has unmerged commits; not removed");
                 crate::needs::add(name, &reason, crate::needs::HELD_REMOVAL, None)?;
                 return Ok(Removal::Waiting(reason));
             }
@@ -703,9 +721,7 @@ pub fn finish_removal(backend: &dyn Backend, name: &str) -> Result<Removal> {
                 let _ = backend.close_workspace(&ws);
             }
             drop_entry(name)?;
-            Ok(Removal::Done(format!(
-                "worktree removed (branch `{branch}` merged)"
-            )))
+            Ok(Removal::Done(format!("worktree removed ({what} merged)")))
         }
         None => match backend.close_workspace(&ws) {
             Ok(()) => {
@@ -724,6 +740,18 @@ pub fn finish_removal(backend: &dyn Backend, name: &str) -> Result<Removal> {
             }
         },
     }
+}
+
+/// The branch checked out in a folder; `None` when detached.
+fn current_branch(dir: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()?;
+    let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !b.is_empty()).then_some(b)
 }
 
 fn drop_entry(name: &str) -> Result<()> {
@@ -857,13 +885,17 @@ pub fn tick(backend: &dyn Backend, state: &mut FleetState, scope: &[String]) -> 
         }
         for (label, ws) in &live {
             if file.get(label).is_none() && !known.contains(label) {
-                let dir = snap
-                    .panes_of(ws)
-                    .find_map(|p| p.cwd.clone())
+                // A linked worktree is recorded by its repo and branch.
+                let wt = snap.workspace(ws).and_then(|w| w.linked_worktree());
+                let dir = wt
+                    .and_then(|w| w.repo_root.clone())
+                    .or_else(|| snap.panes_of(ws).find_map(|p| p.cwd.clone()))
                     .unwrap_or_else(|| "~".into());
+                let branch = wt.and_then(|w| current_branch(Path::new(&w.checkout_path)));
                 file.add(Entry {
                     name: label.clone(),
                     dir,
+                    branch,
                     unmanaged: true,
                     ..Entry::default()
                 });

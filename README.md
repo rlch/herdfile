@@ -34,6 +34,10 @@ one workspace first, set this before installing, then widen it:
 workspaces = ["hf-dogfood"]       # labels; a trailing * matches a prefix; "*" is all
 ```
 
+Before widening the scope, `herdfile plan` prints what the watcher would do to
+each workspace in scope (labels, recorded panes, and any open, close, move or
+resize) without changing anything.
+
 To put `herdfile` itself on your PATH: `cargo install --git https://github.com/rlch/herdfile`.
 
 ## Services: `.herdr/services.toml`
@@ -142,8 +146,9 @@ herdfile tree                     # names, purposes, parents, live agent status
 tab `main`, starts the agent named after the workspace, waits for it, and sends
 `Read <brief> and follow it.` `--parent` defaults to the calling workspace.
 
-`ws remove` waits for the agent to be idle. A worktree goes (`herdr worktree
-remove`) only once its branch is merged into its base, squash merges included;
+`ws remove` waits for the agent to be idle. A worktree, including one opened
+outside herdfile, goes (`herdr worktree remove`) only once its branch (or its
+commit, when detached) is merged into its base, squash merges included;
 with unmerged commits nothing is removed and it goes on the "needs you" list.
 A workspace without a branch is closed, never with `--group`, and its folder is
 kept. Children of a removed workspace move up to its parent. A workspace you

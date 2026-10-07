@@ -27,6 +27,25 @@ pub struct Workspace {
     pub workspace_id: String,
     #[serde(default)]
     pub label: Option<String>,
+    #[serde(default)]
+    pub worktree: Option<WorktreeInfo>,
+}
+
+/// Where a workspace's checkout is, as herdr reports it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorktreeInfo {
+    pub checkout_path: String,
+    #[serde(default)]
+    pub is_linked_worktree: bool,
+    #[serde(default)]
+    pub repo_root: Option<String>,
+}
+
+impl Workspace {
+    /// The checkout, when this workspace is a linked git worktree.
+    pub fn linked_worktree(&self) -> Option<&WorktreeInfo> {
+        self.worktree.as_ref().filter(|w| w.is_linked_worktree)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

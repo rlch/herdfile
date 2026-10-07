@@ -37,13 +37,19 @@ its first prompt once herdr reports it ready.
 
 ### Requirement: Removal waits for idle and merged
 `herdfile ws remove <name>` SHALL remove the entry and close the workspace only when its agent is
-idle or done. A worktree SHALL be removed with `herdr worktree remove` only if its branch is merged
-into its base. With unmerged commits, nothing SHALL be removed and an item SHALL be added to the
+idle or done. A workspace that herdr reports as a linked worktree, whoever opened it, SHALL be
+removed with `herdr worktree remove` only if its branch (or, when detached, its commit) is merged
+into its base, squash merges included. With unmerged commits, nothing SHALL be removed and an item SHALL be added to the
 "needs you" list. The folder of a non-worktree workspace MUST NOT be deleted.
 
 #### Scenario: Primary workspace with linked worktrees
 - **WHEN** an entry without `branch` is removed while herdr links worktree workspaces to it
 - **THEN** herdfile does not pass `--group`, the workspace stays open, and "needs you" says why
+
+#### Scenario: Worktree opened outside herdfile
+- **WHEN** a worktree workspace opened with plain `herdr worktree create` is recorded on first sight
+  and later removed with `ws remove` after its branch merged
+- **THEN** its entry carries the branch, and the worktree goes through `herdr worktree remove`
 
 #### Scenario: Merged branch
 - **WHEN** `review-pr-312` is removed, its agent is idle, and its branch is merged

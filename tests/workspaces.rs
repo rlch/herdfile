@@ -412,3 +412,42 @@ fn primary_with_linked_worktrees_is_never_group_closed() {
     assert!(t.ws_id("side").is_some(), "the linked worktree was closed");
     assert!(t.ok(None, &["needs"]).contains("linked worktree"));
 }
+
+#[test]
+fn outside_worktree_is_recorded_and_removed_once_landed() {
+    let mut t = TestServer::start();
+    decoy(&t);
+    let repo = t.git_repo();
+    let wt = t.dir.join("wt-outside");
+    t.herdr(&[
+        "worktree",
+        "create",
+        "--cwd",
+        repo.to_str().unwrap(),
+        "--branch",
+        "outside",
+        "--path",
+        wt.to_str().unwrap(),
+        "--label",
+        "outside",
+        "--no-focus",
+    ]);
+    t.start_watcher();
+    t.eventually("recorded with its branch", || {
+        t.workspaces_file().contains("[outside]")
+            && t.workspaces_file().contains("branch = \"outside\"")
+    });
+    std::fs::write(wt.join("f.txt"), "x\n").unwrap();
+    t.git(&wt, &["add", "f.txt"]);
+    t.git(&wt, &["commit", "-q", "-m", "work"]);
+    let out = t.ok(None, &["ws", "remove", "outside"]);
+    assert!(out.contains("unmerged"), "{out}");
+    assert!(wt.exists());
+    t.git(&repo, &["merge", "-q", "outside"]);
+    t.eventually("removed once merged", || {
+        t.ws_id("outside").is_none() && !wt.exists()
+    });
+    t.eventually("entry dropped", || {
+        !t.workspaces_file().contains("[outside]")
+    });
+}
