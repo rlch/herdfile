@@ -13,7 +13,14 @@ fn report(state: &str) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     println!("fake claude {}", args.join(" "));
+    // An input box like the real one's, so a sender can see whether its text left it.
+    let prompt = || {
+        use std::io::Write;
+        print!("❯ ");
+        let _ = std::io::stdout().flush();
+    };
     report("idle");
+    prompt();
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         report("working");
@@ -22,10 +29,12 @@ fn main() {
         if let Some(cmd) = line.trim_start().strip_prefix('!') {
             let _ = Command::new("/bin/sh").args(["-c", cmd]).status();
             report("idle");
+            prompt();
             continue;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
         println!("reply to: {line}");
         report("idle");
+        prompt();
     }
 }

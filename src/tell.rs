@@ -54,6 +54,12 @@ pub fn tell(args: TellArgs) -> Result<i32> {
     } else {
         String::new()
     };
+    if !args.wait && args.until.is_empty() && args.timeout.is_none() {
+        // The same send as a brief's: submitted, never left in the input box.
+        crate::workspaces::prompt(&backend, &pane, &pane, &text)?;
+        println!("sent to {target}");
+        return Ok(0);
+    }
     let mut cli: Vec<&str> = vec!["agent", "prompt", &pane, &text];
     if args.wait {
         cli.push("--wait");

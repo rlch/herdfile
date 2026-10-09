@@ -108,7 +108,7 @@ pub fn handoff_with(
             let _ = backend.cli(&["agent", "rename", old, "--clear"]);
         }
         start_agent(backend, &name, &new, model)?;
-        prompt(backend, &new, &format!("Read {brief} and follow it."))?;
+        prompt(backend, &new, &new, &format!("Read {brief} and follow it."))?;
         Ok(())
     })();
     if let Err(e) = started {

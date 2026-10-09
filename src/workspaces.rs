@@ -538,7 +538,7 @@ pub fn add_with(backend: &dyn Backend, args: AddArgs) -> Result<()> {
         start_agent(backend, &args.name, &pane, args.model.as_deref())?;
         println!("agent {} started", args.name);
         if let Some(brief) = &args.brief {
-            prompt(backend, &args.name, &format!("Read {brief} and follow it."))?;
+            prompt(backend, &args.name, &pane, &format!("Read {brief} and follow it."))?;
             println!("brief sent: {brief}");
         }
     }
@@ -681,12 +681,74 @@ pub(crate) fn start_agent(
     Ok(())
 }
 
-pub(crate) fn prompt(backend: &dyn Backend, name: &str, text: &str) -> Result<()> {
-    let (code, _, err) = backend.cli(&["agent", "prompt", name, text])?;
-    if code != 0 {
-        bail!("herdr agent prompt: {}", err.trim());
+/// Send `text` to an agent and make sure it was SUBMITTED, not left in the input box.
+///
+/// A bare `herdr agent prompt` types the text and presses Enter at once; a session still booting
+/// (an MCP-auth warning, an update banner, a long paste still landing) keeps the text unsent until
+/// someone presses Enter by hand (the operator, 2026-09-22 and again 2026-10-10: "a bunch of agents
+/// didnt get their prompts properly AND i had to press enter on a few"). So: wait for the input box,
+/// send, look, press Enter while the text still sits there, and fail loudly if it never leaves.
+pub(crate) fn prompt(backend: &dyn Backend, target: &str, pane: &str, text: &str) -> Result<()> {
+    use std::{thread::sleep, time::Duration};
+    let probe: String = text.chars().take(24).collect();
+    // The text after the last prompt mark, up to the rule under it: what sits unsent.
+    let input_box = || -> String {
+        let Ok((0, out, _)) = backend.cli(&["pane", "read", pane, "--lines", "60"]) else {
+            return String::new();
+        };
+        let body = serde_json::from_str::<Value>(&out)
+            .ok()
+            .and_then(|v| v["result"]["text"].as_str().map(str::to_owned))
+            .unwrap_or(out);
+        let lines: Vec<&str> = body.lines().collect();
+        let Some(at) = lines
+            .iter()
+            .rposition(|l| l.trim_start().starts_with('❯') || l.trim_start().starts_with('›'))
+        else {
+            return String::new();
+        };
+        let mut got = Vec::new();
+        for l in &lines[at..] {
+            let t = l.trim();
+            if !t.is_empty() && t.chars().all(|c| c == '─') {
+                break;
+            }
+            got.push(t.trim_start_matches(['❯', '›']).trim().to_string());
+        }
+        got.join(" ")
+    };
+    let ready = || -> bool {
+        backend
+            .cli(&["pane", "read", pane, "--lines", "60"])
+            .map(|(code, out, _)| code == 0 && (out.contains('❯') || out.contains('›')))
+            .unwrap_or(false)
+    };
+    // Booting: wait for the input box (up to 90 s), so the text is not typed into a splash.
+    for _ in 0..45 {
+        if ready() {
+            break;
+        }
+        sleep(Duration::from_secs(2));
     }
-    Ok(())
+    for _send in 0..3 {
+        let (code, _, err) = backend.cli(&["agent", "prompt", target, text])?;
+        if code != 0 {
+            bail!("herdr agent prompt: {}", err.trim());
+        }
+        for _look in 0..5 {
+            sleep(Duration::from_secs(3));
+            let left = input_box();
+            if left.contains("Pasted text") || (!probe.is_empty() && left.contains(probe.trim())) {
+                let _ = backend.cli(&["pane", "send-keys", pane, "Enter"]);
+                continue;
+            }
+            return Ok(());
+        }
+        if input_box().is_empty() {
+            return Ok(());
+        }
+    }
+    bail!("the prompt to {target} is still sitting unsent in {pane}'s input box after 3 sends; press Enter there")
 }
 
 // --------------------------------------------------------------- remove --
